@@ -25,6 +25,7 @@ from typing import Any, Callable, Coroutine, Dict, Optional
 STATE_CONNECTING = "connecting"
 STATE_WARM = "warm"
 STATE_DEGRADED = "degraded"
+STATE_AUTH_BLOCKED = "auth_blocked"  # terminal: credentials rejected, no retries
 
 # After this many consecutive failures, escalate the recovery ladder:
 # drop the cached Account/Protocol so the next attempt re-runs the full
@@ -124,6 +125,8 @@ class ConnectionManager:
                 await self._fire_on_warm()
                 self._start_heartbeat()
                 return
+            if self._halt_if_auth_blocked():
+                return
             with self._lock:
                 attempts = self._attempts
             # Recovery ladder: every Nth failure, drop the cached
@@ -175,6 +178,8 @@ class ConnectionManager:
             if ok:
                 self._mark_warm()
             else:
+                if self._halt_if_auth_blocked():
+                    return
                 with self._lock:
                     self._state = STATE_DEGRADED
                 self.logger.warning(
@@ -193,13 +198,29 @@ class ConnectionManager:
             account = getattr(self._client, "_account", None)
             if account is None:
                 return self._client.test_connection()
-            account.root.refresh()
+            guarded = getattr(self._client, "_guarded", None)
+            if guarded is not None:
+                guarded(lambda: account.root.refresh())  # auth-latched
+            else:
+                account.root.refresh()
             return True
         except Exception as exc:
             self._mark_failure(f"{type(exc).__name__}: {exc}")
             return False
 
     # --------------------------------------------------------------- helpers
+
+    def _halt_if_auth_blocked(self) -> bool:
+        """Never loop on a credential failure — the AD account locks out."""
+        reason = getattr(self._client, "auth_blocked", None)
+        if not reason:
+            return False
+        with self._lock:
+            self._state = STATE_AUTH_BLOCKED
+            self._next_retry_ts = None
+            self._last_error = str(reason)[:500]
+        self.logger.error("EWS auth rejected — warmup/heartbeat stopped, no retries")
+        return True
 
     def _mark_warm(self) -> None:
         with self._lock:

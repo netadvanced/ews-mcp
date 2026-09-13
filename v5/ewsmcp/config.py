@@ -26,6 +26,15 @@ class Settings(BaseSettings):
     # via exchangelib auto-negotiation (verified live 2026-06-12; pinning
     # BASIC/NTLM both fail). Escape hatch for a *different* server only.
     ews_auth_type_force: Optional[Literal["basic", "ntlm", "digest"]] = None
+    # Optional server-build hint "major.minor.majorbuild.minorbuild" (e.g. from the
+    # X-OWA-Version response header). When set, skips exchangelib's built-in
+    # Version.guess() probe call entirely — useful when that specific probe request
+    # gets reset by an intermediary (LB/WAF) even though normal EWS calls succeed.
+    ews_version_build: Optional[str] = None
+    # Optional SOAP RequestServerVersion (e.g. "Exchange2016"), used with
+    # ews_version_build. exchangelib maps build 15.2 to "Exchange2019", but some
+    # on-prem servers (Lausanne: schema V2017_07_11) reset the connection on it.
+    ews_api_version: Optional[str] = None
     ews_insecure_skip_verify: bool = False
     ews_tz: str = "Asia/Riyadh"
     request_timeout: int = 30

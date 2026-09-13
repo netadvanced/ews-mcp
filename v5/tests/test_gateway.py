@@ -61,3 +61,66 @@ def test_reset_survives_close_and_clear_failures(monkeypatch):
     account.protocol.close.side_effect = OSError("socket gone")
     gw.reset()  # must not raise
     assert gw._account is None
+
+
+# --- account-lockout protection (AD locks after ~3 bad logins) --------------
+
+import asyncio  # noqa: E402
+
+import pytest  # noqa: E402
+from exchangelib.errors import UnauthorizedError  # noqa: E402
+
+from ewsmcp.errors import ToolError  # noqa: E402
+from ewsmcp.gateway.client import AuthFailFast  # noqa: E402
+from ewsmcp.gateway.connection import STATE_AUTH_BLOCKED, ConnectionManager  # noqa: E402
+
+
+def test_retry_policy_never_treats_401_as_busy():
+    resp = MagicMock(status_code=401, url="https://x/EWS", headers={}, content=b"")
+    with pytest.raises(UnauthorizedError):
+        AuthFailFast(max_wait=300).raise_response_errors(resp)
+
+
+def test_auth_failure_trips_latch_and_blocks_further_attempts():
+    gw, account = _gateway_with_mock_account()
+    account.root.refresh.side_effect = UnauthorizedError("Invalid credentials")
+    assert gw.test_connection() is False
+    assert gw.test_connection() is False
+    assert account.root.refresh.call_count == 1  # second call never hit Exchange
+    with pytest.raises(ToolError):
+        asyncio.run(gw.call(lambda acc: acc.inbox))
+
+
+def test_auth_latch_persists_across_restart_for_same_password():
+    gw, account = _gateway_with_mock_account()
+    account.root.refresh.side_effect = UnauthorizedError("Invalid credentials")
+    gw.test_connection()
+    assert EWSGateway(make_settings()).auth_blocked
+
+
+def test_changing_password_clears_latch():
+    gw, account = _gateway_with_mock_account()
+    account.root.refresh.side_effect = UnauthorizedError("Invalid credentials")
+    gw.test_connection()
+    assert EWSGateway(make_settings(ews_password="a-new-password")).auth_blocked is None
+
+
+def test_non_auth_errors_do_not_trip_latch():
+    gw, account = _gateway_with_mock_account()
+    account.root.refresh.side_effect = ConnectionError("reset by peer")
+    assert gw.test_connection() is False
+    assert gw.auth_blocked is None
+
+
+def test_warmup_loop_stops_on_auth_failure():
+    gw, account = _gateway_with_mock_account()
+    account.root.refresh.side_effect = UnauthorizedError("Invalid credentials")
+    mgr = ConnectionManager(gw, initial_backoff=0.01, max_backoff=0.01)
+
+    async def run():
+        await mgr.start()
+        await asyncio.wait_for(mgr._task, timeout=2)  # must terminate on its own
+
+    asyncio.run(run())
+    assert mgr.state == STATE_AUTH_BLOCKED
+    assert account.root.refresh.call_count == 1
