@@ -158,6 +158,7 @@ docker run --rm -p 8000:8000 --env-file .env -v ewsmcp-data:/data ews-mcp:dev
 | `EWS_CACHE_PURGE_ON_BOOT` | `false` | Admin path: wipe the mirror and resync |
 | `EWS_SEMANTIC_INDEX` | `none` | `pgvector` enables the optional vector tier (+`find_similar`) |
 | `EWS_SEMANTIC_PG_DSN` / `EWS_SEMANTIC_OLLAMA_URL` / `EWS_SEMANTIC_MODEL` | — | Vector tier wiring (requires `psycopg`, not a core dependency) |
+| `EWS_AUTH_FAIL_FAST` | `false` | `true` makes the first rejected login (HTTP 401) final until restart instead of retrying it. Use it when the account has an AD lockout policy |
 | `EWS_TZ` | `Asia/Riyadh` | Server timezone for date grammar + display |
 
 ## The send flow (two-phase, content-bound)

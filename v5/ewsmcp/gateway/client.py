@@ -14,6 +14,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from exchangelib import Account, Configuration, Credentials, DELEGATE, EWSTimeZone
+from exchangelib.errors import ErrorServerBusy, UnauthorizedError
 from exchangelib.protocol import (
     BaseProtocol,
     CachingProtocol,
@@ -33,10 +34,31 @@ WELL_KNOWN = {
 }
 
 
+class NoRetryOn401(FaultTolerance):
+    """FaultTolerance, except a 401 is final: it is raised as a login failure
+    instead of being retried as ErrorServerBusy. CAS and "locked out" errors
+    keep their own messages."""
+
+    def raise_response_errors(self, response):
+        try:
+            return super().raise_response_errors(response)
+        except ErrorServerBusy:
+            if response.status_code == 401:
+                raise UnauthorizedError(f"Invalid credentials for {response.url}")
+            raise
+
+
 class EWSGateway:
     def __init__(self, settings: Settings):
         self.settings = settings
         self._account: Optional[Account] = None
+        # EWS_AUTH_FAIL_FAST only: set on the first rejected login, after which
+        # every call fails without touching Exchange until restart. Until one
+        # login has succeeded, calls go through one at a time so parallel
+        # requests can't each spend a login attempt.
+        self.auth_failed: Optional[str] = None
+        self._auth_ok = False
+        self._first_login_lock = threading.Lock()
         self._account_lock = threading.Lock()
         self._pool = ThreadPoolExecutor(
             max_workers=max(1, settings.ews_max_concurrency),
@@ -64,7 +86,8 @@ class EWSGateway:
         kwargs: Dict[str, Any] = dict(
             service_endpoint=s.ews_server_url,
             credentials=Credentials(s.ews_username or s.ews_email, s.ews_password or ""),
-            retry_policy=FaultTolerance(max_wait=s.ews_retry_max_wait_seconds),
+            retry_policy=(NoRetryOn401 if s.ews_auth_fail_fast else FaultTolerance)(
+                max_wait=s.ews_retry_max_wait_seconds),
         )
         if s.ews_auth_type_force:  # escape hatch for a DIFFERENT Exchange only
             logger.warning("auth_type FORCED to %s — the primary Exchange requires auto-negotiation",
@@ -78,6 +101,32 @@ class EWSGateway:
             access_type=DELEGATE,
             default_timezone=EWSTimeZone(s.ews_tz),
         )
+
+    def _run(self, fn: Callable[[], Any]) -> Any:
+        if not self.settings.ews_auth_fail_fast:
+            return fn()
+        if self._auth_ok:
+            return self._guarded(fn)
+        with self._first_login_lock:
+            result = self._guarded(fn)
+            self._auth_ok = True
+            return result
+
+    def _guarded(self, fn: Callable[[], Any]) -> Any:
+        if self.auth_failed:
+            raise ToolError(
+                "auth_failed",
+                f"Exchange rejected the credentials earlier: {self.auth_failed}",
+                hint="Not retrying, to avoid locking the account. Fix the "
+                     "credentials and restart the server.",
+            )
+        try:
+            return fn()
+        except UnauthorizedError as e:
+            self.auth_failed = str(e)
+            self._auth_ok = False
+            logger.error("login rejected, stopping all Exchange calls: %s", e)
+            raise
 
     def reset(self) -> None:
         """Drop the cached account AND exchangelib's protocol-cache entry.
@@ -111,7 +160,7 @@ class EWSGateway:
         never ran). ``root.refresh()`` issues a GetFolder request each time.
         """
         try:
-            self.account.root.refresh()
+            self._run(lambda: self.account.root.refresh())
             self.last_connection_error = None
             return True
         except Exception as e:
@@ -125,7 +174,7 @@ class EWSGateway:
         """Run blocking EWS work on the bounded pool; the pool size IS the
         EWS concurrency cap (polite guest on the per-user throttle budget)."""
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(self._pool, lambda: fn(self.account))
+        return await loop.run_in_executor(self._pool, lambda: self._run(lambda: fn(self.account)))
 
     # ------------------------------------------------------------- folders
 

@@ -129,7 +129,9 @@ stdio MCP, Streamable HTTP `/mcp`, a REST shim `/api/tools/<name>`
 **Never-exit boot**: tools register and transports bind before any
 Exchange contact; a background warmup loop owns connection recovery
 (exponential backoff + jitter, protocol-cache eviction every 3 failures,
-heartbeat re-probe with a REAL network round trip).
+heartbeat re-probe with a REAL network round trip). The one exception is
+`EWS_AUTH_FAIL_FAST=true`: a rejected login stops the loop, so a wrong
+password can't lock an AD account.
 
 ## §Audit
 

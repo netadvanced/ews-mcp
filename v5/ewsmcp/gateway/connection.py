@@ -13,6 +13,7 @@ States:
     connecting  — never connected since process start; warmup loop running
     warm        — last probe/connect succeeded
     degraded    — was warm, a later heartbeat failed; warmup loop re-armed
+    auth_failed — login rejected with EWS_AUTH_FAIL_FAST on; no more attempts
 """
 
 import asyncio
@@ -25,6 +26,7 @@ from typing import Any, Callable, Coroutine, Dict, Optional
 STATE_CONNECTING = "connecting"
 STATE_WARM = "warm"
 STATE_DEGRADED = "degraded"
+STATE_AUTH_FAILED = "auth_failed"
 
 # After this many consecutive failures, escalate the recovery ladder:
 # drop the cached Account/Protocol so the next attempt re-runs the full
@@ -124,6 +126,8 @@ class ConnectionManager:
                 await self._fire_on_warm()
                 self._start_heartbeat()
                 return
+            if self._stop_on_auth_failure():
+                return
             with self._lock:
                 attempts = self._attempts
             # Recovery ladder: every Nth failure, drop the cached
@@ -174,6 +178,8 @@ class ConnectionManager:
             ok = await asyncio.to_thread(self._probe)
             if ok:
                 self._mark_warm()
+            elif self._stop_on_auth_failure():
+                return
             else:
                 with self._lock:
                     self._state = STATE_DEGRADED
@@ -193,13 +199,25 @@ class ConnectionManager:
             account = getattr(self._client, "_account", None)
             if account is None:
                 return self._client.test_connection()
-            account.root.refresh()
+            self._client._run(lambda: account.root.refresh())
             return True
         except Exception as exc:
             self._mark_failure(f"{type(exc).__name__}: {exc}")
             return False
 
     # --------------------------------------------------------------- helpers
+
+    def _stop_on_auth_failure(self) -> bool:
+        # Retrying a rejected password only adds failed logins on the
+        # account, so the loop ends here instead of backing off.
+        reason = getattr(self._client, "auth_failed", None)
+        if not reason:
+            return False
+        with self._lock:
+            self._state = STATE_AUTH_FAILED
+            self._next_retry_ts = None
+        self.logger.error("EWS login rejected, warmup stopped: %s", reason)
+        return True
 
     def _mark_warm(self) -> None:
         with self._lock:
