@@ -1,15 +1,22 @@
 """Environment-driven configuration (12-factor; every knob defaults safe)."""
 
+import re
 from pathlib import Path
 from typing import Literal, Optional
 
-from pydantic import Field, model_validator
+from exchangelib.version import VERSIONS
+from pydantic import Field, ValidationInfo, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Path fragments that identify cloud-synced folders. The data dir holds
 # mail-at-rest (alias DB, audit chain, cache mirror) — it must never ride
 # a sync client onto other machines or a vendor cloud.
 _SYNCED_MARKERS = ("onedrive", "dropbox", "google drive", "googledrive", "icloud")
+
+# Exchange build number as in the X-OWA-Version header: 15.2.2562.43
+_BUILD_RE = re.compile(r"[0-9]+(\.[0-9]+){3}")
+# RequestServerVersion values exchangelib knows, e.g. Exchange2016
+_API_VERSIONS = sorted({api_version for _, api_version, _ in VERSIONS})
 
 
 class Settings(BaseSettings):
@@ -26,6 +33,14 @@ class Settings(BaseSettings):
     # via exchangelib auto-negotiation (verified live 2026-06-12; pinning
     # BASIC/NTLM both fail). Escape hatch for a *different* server only.
     ews_auth_type_force: Optional[Literal["basic", "ntlm", "digest"]] = None
+    # Pin the server version instead of letting exchangelib probe for it.
+    # EWS_VERSION_BUILD is the Exchange build, e.g. "15.2.2562.43" (the
+    # X-OWA-Version response header shows it). EWS_API_VERSION overrides the
+    # RequestServerVersion sent on every request (e.g. "Exchange2016") for
+    # servers that reject the one exchangelib derives from the build; it needs
+    # EWS_VERSION_BUILD. Both unset = auto-detect, as before.
+    ews_version_build: str | None = None
+    ews_api_version: str | None = None
     ews_insecure_skip_verify: bool = False
     ews_tz: str = "Asia/Riyadh"
     request_timeout: int = 30
@@ -98,6 +113,39 @@ class Settings(BaseSettings):
                 )
         self.data_dir = str(resolved)
         return self
+
+    # Field validators rather than a model validator: pydantic's error message
+    # then echoes only the offending value, not every setting (password included).
+    @field_validator("ews_version_build")
+    @classmethod
+    def _check_version_build(cls, build: str | None) -> str | None:
+        build = (build or "").strip() or None  # blank in .env means unset
+        if build is not None and (not _BUILD_RE.fullmatch(build) or int(build.split(".")[0]) < 8):
+            raise ValueError(
+                f"EWS_VERSION_BUILD={build!r} is not an Exchange build number. Expected "
+                "major.minor.build.revision with a major version of 8 or later, "
+                "e.g. 15.2.2562.43."
+            )
+        return build
+
+    @field_validator("ews_api_version")
+    @classmethod
+    def _check_api_version(cls, api_version: str | None, info: ValidationInfo) -> str | None:
+        api_version = (api_version or "").strip() or None
+        if api_version is None:
+            return None
+        # Absent from info.data when EWS_VERSION_BUILD itself failed validation.
+        if "ews_version_build" in info.data and info.data["ews_version_build"] is None:
+            raise ValueError(
+                "EWS_API_VERSION only works together with EWS_VERSION_BUILD. "
+                "Set both, or unset EWS_API_VERSION to keep auto-detection."
+            )
+        if api_version not in _API_VERSIONS:
+            raise ValueError(
+                f"EWS_API_VERSION={api_version!r} is not a known EWS API version. "
+                f"Use one of: {', '.join(_API_VERSIONS)}."
+            )
+        return api_version
 
 
 def get_settings() -> Settings:

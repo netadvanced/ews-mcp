@@ -13,7 +13,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from exchangelib import Account, Configuration, Credentials, DELEGATE, EWSTimeZone
+from exchangelib import Account, Build, Configuration, Credentials, DELEGATE, EWSTimeZone, Version
 from exchangelib.errors import ErrorServerBusy, UnauthorizedError
 from exchangelib.protocol import (
     BaseProtocol,
@@ -93,6 +93,11 @@ class EWSGateway:
             logger.warning("auth_type FORCED to %s — the primary Exchange requires auto-negotiation",
                            s.ews_auth_type_force)
             kwargs["auth_type"] = s.ews_auth_type_force
+        if s.ews_version_build:  # pinned: exchangelib skips its version probe
+            build = Build(*(int(part) for part in s.ews_version_build.split(".")))
+            kwargs["version"] = Version(build=build, api_version=s.ews_api_version)
+            logger.info("EWS version pinned to build %s, API version %s",
+                        build, kwargs["version"].api_version)
         config = Configuration(**kwargs)
         return Account(
             primary_smtp_address=s.ews_email,

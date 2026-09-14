@@ -38,3 +38,41 @@ def test_synced_path_escape_hatch(tmp_path):
 def test_confirm_ttl_default_matches_confirm_module():
     from ewsmcp import confirm
     assert make_settings().confirm_ttl_seconds == confirm.DEFAULT_TTL_SECONDS == 600
+
+
+# --- EWS_VERSION_BUILD / EWS_API_VERSION ----------------------------------------
+
+
+def test_version_pin_is_off_by_default():
+    s = make_settings()
+    assert s.ews_version_build is None
+    assert s.ews_api_version is None
+
+
+def test_version_pin_accepts_build_and_api_version():
+    s = make_settings(ews_version_build=" 15.2.2562.43 ", ews_api_version="Exchange2016")
+    assert s.ews_version_build == "15.2.2562.43"
+    assert s.ews_api_version == "Exchange2016"
+
+
+def test_blank_version_values_mean_unset():
+    s = make_settings(ews_version_build="", ews_api_version="")
+    assert s.ews_version_build is None
+    assert s.ews_api_version is None
+
+
+@pytest.mark.parametrize("build", ["15.2", "15.2.2562", "15.2.2562.43.1", "v15.2.2562.43",
+                                   "15.2.x.43", "7.0.0.0"])
+def test_malformed_build_is_refused(build):
+    with pytest.raises(Exception, match="EWS_VERSION_BUILD.*major.minor.build.revision"):
+        make_settings(ews_version_build=build)
+
+
+def test_api_version_without_build_is_refused():
+    with pytest.raises(Exception, match="EWS_API_VERSION only works together with"):
+        make_settings(ews_api_version="Exchange2016")
+
+
+def test_unknown_api_version_is_refused():
+    with pytest.raises(Exception, match="not a known EWS API version.*Exchange2016"):
+        make_settings(ews_version_build="15.2.2562.43", ews_api_version="Exchange 2016")

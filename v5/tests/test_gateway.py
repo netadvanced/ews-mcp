@@ -11,6 +11,7 @@ from unittest.mock import MagicMock
 
 import pytest
 from conftest import make_settings
+from exchangelib import Build
 from exchangelib.errors import UnauthorizedError
 
 from ewsmcp.errors import ToolError
@@ -137,3 +138,32 @@ def test_warmup_stops_after_rejected_login():
     asyncio.run(run())
     assert mgr.state == STATE_AUTH_FAILED
     assert account.root.refresh.call_count == 1
+
+
+# --- EWS_VERSION_BUILD / EWS_API_VERSION ----------------------------------------
+
+
+def _configuration_kwargs(monkeypatch, **overrides):
+    seen = []
+    monkeypatch.setattr(client_mod, "Configuration", lambda **kw: seen.append(kw))
+    monkeypatch.setattr(client_mod, "Account", MagicMock())
+    EWSGateway(make_settings(**overrides))._build_account()
+    return seen[0]
+
+
+def test_version_is_auto_detected_by_default(monkeypatch):
+    assert "version" not in _configuration_kwargs(monkeypatch)
+
+
+def test_pinned_build_uses_derived_api_version(monkeypatch):
+    version = _configuration_kwargs(monkeypatch, ews_version_build="15.2.2562.43")["version"]
+    assert version.build == Build(15, 2, 2562, 43)
+    assert version.api_version == "Exchange2019"
+
+
+def test_pinned_api_version_overrides_derived_one(monkeypatch):
+    version = _configuration_kwargs(
+        monkeypatch, ews_version_build="15.2.2562.43", ews_api_version="Exchange2016"
+    )["version"]
+    assert version.build == Build(15, 2, 2562, 43)
+    assert version.api_version == "Exchange2016"

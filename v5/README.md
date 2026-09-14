@@ -143,6 +143,8 @@ docker run --rm -p 8000:8000 --env-file .env -v ewsmcp-data:/data ews-mcp:dev
 | Variable | Default | Meaning |
 |---|---|---|
 | `EWS_SERVER_URL` / `EWS_EMAIL` / `EWS_USERNAME` / `EWS_PASSWORD` | — | Exchange endpoint + credentials (auth auto-negotiation; never pinned) |
+| `EWS_VERSION_BUILD` | — | Pin the Exchange build (`major.minor.build.revision`, e.g. `15.2.2562.43` from the `X-OWA-Version` header) and skip exchangelib's version probe |
+| `EWS_API_VERSION` | derived from build | RequestServerVersion sent on every request (e.g. `Exchange2016`), for servers that reject the derived one. Requires `EWS_VERSION_BUILD` |
 | `EWS_CAPABILITY_TIER` | `draft` | `read` ⊂ `draft` ⊂ `full` — above-tier tools are unregistered AND refused |
 | `SEND_ENABLED` | `false` | Global send kill-switch (blocks every send-class tool) |
 | `EWS_RECIPIENT_ALLOWLIST` / `EWS_RECIPIENT_DENYLIST` | — | Glob lists enforced on argument-borne AND draft-resolved recipients |
