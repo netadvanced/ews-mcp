@@ -19,9 +19,10 @@ exchangelib 5.0.3 shapes verified against the installed library:
 """
 
 import time
-from datetime import datetime, time as dtime, timedelta
+from datetime import datetime, timedelta
+from datetime import time as dtime
 from itertools import islice
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from .. import __version__
 from ..bodyclean import clean_body, html_to_text
@@ -38,7 +39,7 @@ _CONTACT_FIELDS = ("display_name", "email_addresses", "job_title",
                    "company_name", "phone_numbers")
 
 
-def _window(start: str, end: str, tz: str) -> Tuple[datetime, datetime]:
+def _window(start: str, end: str, tz: str) -> tuple[datetime, datetime]:
     start_dt = parse_when(start, "start", tz)
     end_dt = parse_when(end, "end", tz)
     if end_dt <= start_dt:
@@ -63,12 +64,12 @@ def _ceil_to_grid(dt: datetime, step_minutes: int = GRID_MINUTES) -> datetime:
 
 
 def merge_busy_and_find_slots(
-    busy_by_attendee: Dict[str, List[Tuple[datetime, datetime]]],
+    busy_by_attendee: dict[str, list[tuple[datetime, datetime]]],
     window_start: datetime,
     window_end: datetime,
     duration: int,
-    working_hours: Optional[Tuple[dtime, dtime]] = None,
-) -> List[Tuple[datetime, datetime]]:
+    working_hours: tuple[dtime, dtime] | None = None,
+) -> list[tuple[datetime, datetime]]:
     """Pure slot synthesis: candidate starts on a wall-clock 30-minute
     grid inside [window_start, window_end); a slot of ``duration``
     minutes qualifies when NO attendee has an overlapping busy block
@@ -79,7 +80,7 @@ def merge_busy_and_find_slots(
     if dur <= timedelta(0) or window_end <= window_start:
         return []
     step = timedelta(minutes=GRID_MINUTES)
-    slots: List[Tuple[datetime, datetime]] = []
+    slots: list[tuple[datetime, datetime]] = []
     t = _ceil_to_grid(window_start)
     while t + dur <= window_end:
         slot_end = t + dur
@@ -102,14 +103,14 @@ def merge_busy_and_find_slots(
 
 
 async def _list_events(ctx: Context, start: str = "today", end: str = "+7d",
-                       offset: int = 0, limit: int = 25) -> Dict[str, Any]:
+                       offset: int = 0, limit: int = 25) -> dict[str, Any]:
     tz = ctx.settings.ews_tz
     start_dt, end_dt = _window(start, end, tz)
     offset = max(0, int(offset))
     limit = max(0, int(limit))
     cap = offset + limit + 1  # lookahead: is there a page after this one?
 
-    def work(account: Any) -> List[Any]:
+    def work(account: Any) -> list[Any]:
         # .view() implements CalendarView: it EXPANDS recurring events into
         # occurrences overlapping the window. .filter() would return only
         # recurrence masters — wrong for a calendar listing. Never swap.
@@ -129,12 +130,12 @@ async def _list_events(ctx: Context, start: str = "today", end: str = "+7d",
     return envelope(cards, total, offset, next_offset=next_offset)
 
 
-def _attendee_entries(item: Any) -> List[Dict[str, Any]]:
-    out: List[Dict[str, Any]] = []
+def _attendee_entries(item: Any) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
     for att in [*(getattr(item, "required_attendees", None) or []),
                 *(getattr(item, "optional_attendees", None) or [])]:
         mailbox = getattr(att, "mailbox", None)
-        entry: Dict[str, Any] = {
+        entry: dict[str, Any] = {
             "email": getattr(mailbox, "email_address", None) or "",
             "response": str(getattr(att, "response_type", None) or "Unknown"),
         }
@@ -145,7 +146,7 @@ def _attendee_entries(item: Any) -> List[Dict[str, Any]]:
     return out
 
 
-async def _get_event(ctx: Context, id: str) -> Dict[str, Any]:
+async def _get_event(ctx: Context, id: str) -> dict[str, Any]:
     tz = ctx.settings.ews_tz
 
     def work(account: Any) -> Any:
@@ -175,9 +176,9 @@ async def _get_event(ctx: Context, id: str) -> Dict[str, Any]:
     return {"ok": True, "event": event}
 
 
-async def _check_availability(ctx: Context, attendees: List[str], start: str,
+async def _check_availability(ctx: Context, attendees: list[str], start: str,
                               end: str, duration_minutes: int = 30,
-                              working_hours_only: bool = True) -> Dict[str, Any]:
+                              working_hours_only: bool = True) -> dict[str, Any]:
     tz = ctx.settings.ews_tz
     emails = [a.strip() for a in (attendees or []) if isinstance(a, str) and a.strip()]
     if not emails:
@@ -187,14 +188,14 @@ async def _check_availability(ctx: Context, attendees: List[str], start: str,
     start_dt, end_dt = _window(start, end, tz)
     requests = [(email, "Required", False) for email in emails]
 
-    def work(account: Any) -> List[Any]:
+    def work(account: Any) -> list[Any]:
         return list(account.protocol.get_free_busy_info(
             accounts=requests, start=start_dt, end=end_dt))
 
     views = await ctx.gateway.call(work)
-    per_attendee: Dict[str, Any] = {}
-    busy_by_attendee: Dict[str, List[Tuple[datetime, datetime]]] = {}
-    degraded: List[str] = []
+    per_attendee: dict[str, Any] = {}
+    busy_by_attendee: dict[str, list[tuple[datetime, datetime]]] = {}
+    degraded: list[str] = []
     for email, view in zip(emails, views):
         if isinstance(view, Exception):
             # One unresolvable attendee (external address, hidden calendar)
@@ -203,8 +204,8 @@ async def _check_availability(ctx: Context, attendees: List[str], start: str,
             per_attendee[email] = {"error": f"{type(view).__name__}: {view}"}
             degraded.append(email)
             continue
-        entries: List[Dict[str, Any]] = []
-        blocks: List[Tuple[datetime, datetime]] = []
+        entries: list[dict[str, Any]] = []
+        blocks: list[tuple[datetime, datetime]] = []
         for ev in getattr(view, "calendar_events", None) or []:
             ev_start = getattr(ev, "start", None)
             ev_end = getattr(ev, "end", None)
@@ -227,23 +228,23 @@ async def _check_availability(ctx: Context, attendees: List[str], start: str,
     raw = merge_busy_and_find_slots(busy_by_attendee, start_dt, end_dt,
                                     int(duration_minutes), hours)
     slots = [{"start": fmt_dt(s, tz), "end": fmt_dt(e, tz)} for s, e in raw]
-    out: Dict[str, Any] = {"ok": True, "slots": slots, "per_attendee": per_attendee}
+    out: dict[str, Any] = {"ok": True, "slots": slots, "per_attendee": per_attendee}
     if degraded:
         out["warnings"] = [
-            f"free/busy unavailable for: {', '.join(degraded)} — slots "
-            "ignore their calendars"
+            (f"free/busy unavailable for: {', '.join(degraded)} — slots "
+             "ignore their calendars")
         ]
     return out
 
 
-def _gal_person(entry: Any) -> Optional[Tuple[str, Dict[str, Any]]]:
+def _gal_person(entry: Any) -> tuple[str, dict[str, Any]] | None:
     """(raw_alias_key, person) — GAL has no stable item id, so the email
     itself is the raw key the 'p' alias binds to."""
     mailbox, contact = entry if isinstance(entry, tuple) else (entry, None)
     email = (getattr(mailbox, "email_address", None) or "").strip()
     if not email:
         return None
-    person: Dict[str, Any] = {
+    person: dict[str, Any] = {
         "name": getattr(mailbox, "name", None)
         or getattr(contact, "display_name", None) or email,
         "email": email,
@@ -253,7 +254,7 @@ def _gal_person(entry: Any) -> Optional[Tuple[str, Dict[str, Any]]]:
     return email, person
 
 
-def _enrich_from_contact(person: Dict[str, Any], contact: Any) -> None:
+def _enrich_from_contact(person: dict[str, Any], contact: Any) -> None:
     if contact is None:
         return
     title = getattr(contact, "job_title", None)
@@ -269,14 +270,14 @@ def _enrich_from_contact(person: Dict[str, Any], contact: Any) -> None:
             break
 
 
-def _contact_person(contact: Any) -> Optional[Tuple[str, Dict[str, Any]]]:
+def _contact_person(contact: Any) -> tuple[str, dict[str, Any]] | None:
     emails = [getattr(e, "email", None)
               for e in (getattr(contact, "email_addresses", None) or [])]
     email = next((e for e in emails if e), None)
     if not email:
         return None  # address-less contacts are useless to the secretary
     raw_key = str(getattr(contact, "id", None) or email)
-    person: Dict[str, Any] = {
+    person: dict[str, Any] = {
         "name": getattr(contact, "display_name", None) or email,
         "email": email,
         "source": "contacts",
@@ -286,15 +287,15 @@ def _contact_person(contact: Any) -> Optional[Tuple[str, Dict[str, Any]]]:
 
 
 async def _find_people(ctx: Context, query: str, source: str = "auto",
-                       limit: int = 10) -> Dict[str, Any]:
+                       limit: int = 10) -> dict[str, Any]:
     q = (query or "").strip()
     if not q:
         raise ToolError("validation", "'query' must be a non-empty string.")
     ql = q.lower()
 
-    def work(account: Any) -> Tuple[List[Any], List[Any]]:
-        gal: List[Any] = []
-        matched: List[Any] = []
+    def work(account: Any) -> tuple[list[Any], list[Any]]:
+        gal: list[Any] = []
+        matched: list[Any] = []
         if source in ("auto", "gal"):
             gal = list(account.protocol.resolve_names(
                 [q], return_full_contact_data=True))
@@ -335,7 +336,7 @@ async def _find_people(ctx: Context, query: str, source: str = "auto",
         out = envelope(people, len(people), 0)
         out["source"] = "cache"
         return out
-    candidates: List[Tuple[str, Dict[str, Any]]] = []
+    candidates: list[tuple[str, dict[str, Any]]] = []
     for entry in gal_entries:
         if isinstance(entry, Exception):  # ErrorNameResolutionNoResults etc.
             continue
@@ -346,7 +347,7 @@ async def _find_people(ctx: Context, query: str, source: str = "auto",
         built = _contact_person(contact)
         if built:
             candidates.append(built)
-    people: List[Dict[str, Any]] = []
+    people: list[dict[str, Any]] = []
     seen: set = set()
     for raw_key, person in candidates:
         key = person["email"].lower()
@@ -368,7 +369,7 @@ async def _find_people(ctx: Context, query: str, source: str = "auto",
     return envelope(people[:max(0, int(limit))], total, 0)
 
 
-async def _get_contact(ctx: Context, id: str) -> Dict[str, Any]:
+async def _get_contact(ctx: Context, id: str) -> dict[str, Any]:
     """Consumer for the p-aliases find_people mints. Accepts a p-alias
     (already resolved to its raw key by the dispatcher), a raw contact id,
     or a plain email address."""
@@ -376,7 +377,7 @@ async def _get_contact(ctx: Context, id: str) -> Dict[str, Any]:
     if not key:
         raise ToolError("validation", "'id' must be a p-alias, contact id or email.")
 
-    def work(account: Any) -> Optional[Tuple[str, Dict[str, Any]]]:
+    def work(account: Any) -> tuple[str, dict[str, Any]] | None:
         if "@" in key:  # GAL raw keys ARE the address
             for entry in account.protocol.resolve_names(
                     [key], return_full_contact_data=True):
@@ -392,7 +393,7 @@ async def _get_contact(ctx: Context, id: str) -> Dict[str, Any]:
             raise item
         return _contact_person(item) if item is not None else None
 
-    person: Optional[Dict[str, Any]] = None
+    person: dict[str, Any] | None = None
     raw_key = key
     try:
         built = await ctx.gateway.call(work)
@@ -421,14 +422,14 @@ async def _get_contact(ctx: Context, id: str) -> Dict[str, Any]:
             "person": {"id": ctx.aliaser.alias_for(raw_key, "p"), **person}}
 
 
-async def _get_oof_settings(ctx: Context) -> Dict[str, Any]:
+async def _get_oof_settings(ctx: Context) -> dict[str, Any]:
     tz = ctx.settings.ews_tz
     oof = await ctx.gateway.call(lambda account: account.oof_settings)
 
     def reply_text(value: Any) -> str:
         return html_to_text(str(value))[:500] if value else ""
 
-    out: Dict[str, Any] = {
+    out: dict[str, Any] = {
         "ok": True,
         "state": str(getattr(oof, "state", None) or "Disabled").lower(),
         "internal_reply_text": reply_text(getattr(oof, "internal_reply", None)),
@@ -441,9 +442,9 @@ async def _get_oof_settings(ctx: Context) -> Dict[str, Any]:
     return out
 
 
-async def _get_server_status(ctx: Context) -> Dict[str, Any]:
+async def _get_server_status(ctx: Context) -> dict[str, Any]:
     # requires_ews=False: answers even while Exchange is cold. No network.
-    cache_block: Dict[str, Any] = {
+    cache_block: dict[str, Any] = {
         "enabled": bool(getattr(ctx.settings, "ews_cache_enabled", False)),
         "ready": ctx.cache is not None,
     }
@@ -472,7 +473,7 @@ async def _get_server_status(ctx: Context) -> Dict[str, Any]:
 
 _DATE_DESC = "'today', '+Nd' (relative days), YYYY-MM-DD, or ISO datetime"
 
-TOOLS: List[ToolSpec] = [
+TOOLS: list[ToolSpec] = [
     ToolSpec(
         name="list_events",
         description=(

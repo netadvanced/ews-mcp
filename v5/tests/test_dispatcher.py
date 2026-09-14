@@ -5,9 +5,10 @@ Driven with ``asyncio.run`` against ``dispatch()`` directly.
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Dict
+from typing import Any
 
 from conftest import make_settings
+
 from ewsmcp.audit import AuditLog
 from ewsmcp.ids import get_aliaser
 from ewsmcp.tools.base import Context, ToolSpec, dispatch
@@ -38,7 +39,7 @@ def _spec(handler, *, cls="read", confirm=False, requires_ews=True, name="t") ->
     )
 
 
-async def _ok_handler(ctx, **kwargs) -> Dict[str, Any]:
+async def _ok_handler(ctx, **kwargs) -> dict[str, Any]:
     return {"ran": True, "got": kwargs}
 
 
@@ -208,7 +209,7 @@ def test_confirm_token_never_reaches_non_confirm_handlers(tmp_path):
 
 
 def test_handler_typeerror_maps_to_validation(tmp_path):
-    async def strict(ctx, *, required_arg):  # noqa: ARG001
+    async def strict(ctx, *, required_arg):
         return {"ran": True}
 
     ctx = _ctx(tmp_path)

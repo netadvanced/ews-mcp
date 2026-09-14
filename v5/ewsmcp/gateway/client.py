@@ -14,12 +14,13 @@ import logging
 import os
 import threading
 import time
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any
 
-from exchangelib import Account, Build, Configuration, Credentials, DELEGATE, EWSTimeZone, Version
+from exchangelib import DELEGATE, Account, Build, Configuration, Credentials, EWSTimeZone, Version
 from exchangelib.errors import ErrorServerBusy, UnauthorizedError
 from exchangelib.protocol import (
     BaseProtocol,
@@ -62,14 +63,14 @@ class NoRetryOn401(FaultTolerance):
 class EWSGateway:
     def __init__(self, settings: Settings):
         self.settings = settings
-        self._account: Optional[Account] = None
+        self._account: Account | None = None
         # EWS_AUTH_FAIL_FAST only: set on the first rejected login, after which
         # every call fails without touching Exchange. The rejection is saved in
         # DATA_DIR and reloaded on restart while the credentials are unchanged.
         # Until one login has succeeded, calls go through one at a time so
         # parallel requests can't each spend a login attempt.
         self._auth_latch_path = Path(settings.data_dir) / AUTH_LATCH_FILE
-        self.auth_failed: Optional[str] = (
+        self.auth_failed: str | None = (
             self._load_auth_latch() if settings.ews_auth_fail_fast else None
         )
         self._auth_ok = False
@@ -79,8 +80,8 @@ class EWSGateway:
             max_workers=max(1, settings.ews_max_concurrency),
             thread_name_prefix="ews",
         )
-        self.last_connection_error: Optional[str] = None
-        self._folder_cache: Dict[str, Any] = {}
+        self.last_connection_error: str | None = None
+        self._folder_cache: dict[str, Any] = {}
         self._folder_cache_ts = 0.0
         if settings.ews_insecure_skip_verify:
             BaseProtocol.HTTP_ADAPTER_CLS = NoVerifyHTTPAdapter
@@ -98,12 +99,12 @@ class EWSGateway:
     def _build_account(self) -> Account:
         s = self.settings
         BaseProtocol.TIMEOUT = s.request_timeout
-        kwargs: Dict[str, Any] = dict(
-            service_endpoint=s.ews_server_url,
-            credentials=Credentials(s.ews_username or s.ews_email, s.ews_password or ""),
-            retry_policy=(NoRetryOn401 if s.ews_auth_fail_fast else FaultTolerance)(
+        kwargs: dict[str, Any] = {
+            "service_endpoint": s.ews_server_url,
+            "credentials": Credentials(s.ews_username or s.ews_email, s.ews_password or ""),
+            "retry_policy": (NoRetryOn401 if s.ews_auth_fail_fast else FaultTolerance)(
                 max_wait=s.ews_retry_max_wait_seconds),
-        )
+        }
         if s.ews_auth_type_force:  # escape hatch for a DIFFERENT Exchange only
             logger.warning("auth_type FORCED to %s — the primary Exchange requires auto-negotiation",
                            s.ews_auth_type_force)
@@ -255,12 +256,12 @@ class EWSGateway:
 
     # ------------------------------------------------------------- folders
 
-    def _folder_map(self, account: Account) -> Dict[str, Any]:
+    def _folder_map(self, account: Account) -> dict[str, Any]:
         """{raw_id|lower_path: Folder} cache, rebuilt every 300s (sync)."""
         now = time.time()
         if self._folder_cache and now - self._folder_cache_ts < 300:
             return self._folder_cache
-        cache: Dict[str, Any] = {}
+        cache: dict[str, Any] = {}
         try:
             for folder in account.msg_folder_root.walk():
                 if getattr(folder, "id", None):
@@ -279,7 +280,7 @@ class EWSGateway:
             self._folder_cache_ts = now
         return cache
 
-    def resolve_folder(self, account: Account, ref: Optional[str], aliaser) -> Any:
+    def resolve_folder(self, account: Account, ref: str | None, aliaser) -> Any:
         """well-known alias | folder alias (f12) | path | raw id → Folder (sync)."""
         if not ref:
             return account.inbox
@@ -302,7 +303,7 @@ class EWSGateway:
 
 
 def paginate(query: Any, *, offset: int, limit: int,
-             chunk: int = 50) -> Tuple[List[Any], Optional[int]]:
+             chunk: int = 50) -> tuple[list[Any], int | None]:
     """Materialize query[offset:offset+limit] in chunks (sync, raises on
     mid-iteration failure — the caller's error mapper classifies it).
 
@@ -316,7 +317,7 @@ def paginate(query: Any, *, offset: int, limit: int,
     offset = max(0, offset)
     limit = max(0, limit)
     lookahead = limit + 1
-    items: List[Any] = []
+    items: list[Any] = []
     cursor = offset
     chunk = max(1, min(chunk, 250))
     while len(items) < lookahead:

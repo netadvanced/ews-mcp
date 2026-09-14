@@ -94,7 +94,7 @@ def test_schema_violation_is_rejected_before_dispatch(tmp_path):
 
 def test_unknown_tool_404(tmp_path):
     app = build_app(_ctx(tmp_path), make_settings())
-    status, body = _status_and_body(_post(app, "nope", {}))
+    status, _body = _status_and_body(_post(app, "nope", {}))
     assert status == 404
 
 

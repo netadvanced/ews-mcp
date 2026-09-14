@@ -16,8 +16,8 @@ import asyncio
 import time
 
 import pytest
-
 from conftest import make_settings
+from test_cache_store import make_row
 
 from ewsmcp.audit import AuditLog
 from ewsmcp.cache.store import CacheStore
@@ -25,8 +25,6 @@ from ewsmcp.ids import get_aliaser
 from ewsmcp.normalize import normalize_ar
 from ewsmcp.tools import build_registry
 from ewsmcp.tools.base import Context, dispatch
-
-from test_cache_store import make_row
 
 
 class NoTouchGateway:

@@ -40,9 +40,9 @@ import re
 import sqlite3
 import threading
 import time
+from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Iterator, Optional
 
 _LOG = logging.getLogger(__name__)
 
@@ -90,7 +90,7 @@ class IdAliaser:
         aliaser.rebind("AAMkAGI2...", "AAMkNEW...")          # move happened
     """
 
-    def __init__(self, memory_dir: "str | os.PathLike[str]") -> None:
+    def __init__(self, memory_dir: str | os.PathLike[str]) -> None:
         base = Path(memory_dir).resolve()
         base.mkdir(parents=True, exist_ok=True)
         # Harden dir perms (owner-only). Best-effort on POSIX; no-op on Windows.
@@ -157,8 +157,8 @@ class IdAliaser:
         self,
         ews_id: str,
         kind: str = "m",
-        changekey: Optional[str] = None,
-        internet_message_id: Optional[str] = None,
+        changekey: str | None = None,
+        internet_message_id: str | None = None,
     ) -> str:
         """Return the (existing or freshly minted) alias for ``ews_id``.
 
@@ -239,8 +239,8 @@ class IdAliaser:
 
     def alias_many(
         self,
-        entries: "list[tuple[str, str, Optional[str], Optional[str]]]",
-    ) -> "dict[str, str]":
+        entries: list[tuple[str, str, str | None, str | None]],
+    ) -> dict[str, str]:
         """Bulk ``alias_for``: one transaction for a whole result page.
 
         ``entries`` is ``[(ews_id, kind, changekey, internet_message_id)]``.
@@ -249,7 +249,7 @@ class IdAliaser:
         write transaction instead of fifty. Never raises on storage errors
         — missing entries simply fall back to per-id alias_for behavior.
         """
-        out: "dict[str, str]" = {}
+        out: dict[str, str] = {}
         if not entries:
             return out
         try:
@@ -332,8 +332,8 @@ class IdAliaser:
         self,
         old_ews_id: str,
         new_ews_id: str,
-        changekey: Optional[str] = None,
-    ) -> Optional[str]:
+        changekey: str | None = None,
+    ) -> str | None:
         """Repoint the alias of ``old_ews_id`` at ``new_ews_id`` after a move.
 
         Keeps the alias itself stable. If ``new_ews_id`` was already
@@ -376,7 +376,7 @@ class IdAliaser:
             _LOG.warning("id_alias: rebind failed (%s); returning None", exc)
             return None
 
-    def imid_for(self, alias_or_id: str) -> Optional[str]:
+    def imid_for(self, alias_or_id: str) -> str | None:
         """Return the stored Internet-Message-Id for an alias or raw id."""
         try:
             with self._connect() as conn:

@@ -7,10 +7,10 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from ewsmcp.confirm import reset_consumed_tokens  # noqa: E402
-from ewsmcp.ids import reset_aliaser_cache  # noqa: E402
-from ewsmcp.tools.base import reset_send_rate_window  # noqa: E402
-from ewsmcp.tools.writes import reset_idempotency_store  # noqa: E402
+from ewsmcp.confirm import reset_consumed_tokens
+from ewsmcp.ids import reset_aliaser_cache
+from ewsmcp.tools.base import reset_send_rate_window
+from ewsmcp.tools.writes import reset_idempotency_store
 
 
 @pytest.fixture(autouse=True)
@@ -35,12 +35,12 @@ def make_settings(**overrides):
     would (correctly) refuse a relative path resolved inside the repo.
     """
     from ewsmcp.config import Settings
-    base = dict(
-        ews_server_url="https://mail.corp.example/EWS/Exchange.asmx",
-        ews_email="exec@corp.example",
-        ews_username="svc",
-        ews_password="pw",
-        mcp_transport="stdio",
-    )
+    base = {
+        "ews_server_url": "https://mail.corp.example/EWS/Exchange.asmx",
+        "ews_email": "exec@corp.example",
+        "ews_username": "svc",
+        "ews_password": "pw",
+        "mcp_transport": "stdio",
+    }
     base.update(overrides)
     return Settings(**base)

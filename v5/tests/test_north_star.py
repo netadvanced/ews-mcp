@@ -17,14 +17,13 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 from conftest import make_settings
+from test_cache_store import make_row
 
 from ewsmcp.audit import AuditLog
 from ewsmcp.cache.store import CacheStore
 from ewsmcp.ids import get_aliaser
 from ewsmcp.tools import build_registry
 from ewsmcp.tools.base import Context, dispatch
-
-from test_cache_store import make_row
 
 RAW_EWS_ID = "AAMkAGI2TG93AAA" + "x" * 120 + "="  # realistically long
 

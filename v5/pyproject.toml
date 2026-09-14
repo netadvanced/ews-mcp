@@ -21,7 +21,7 @@ dependencies = [
 dev = [
     "pytest>=8",
     "pytest-asyncio>=0.23",
-    "ruff>=0.4",
+    "ruff==0.16.7",
 ]
 
 [project.scripts]
@@ -37,3 +37,20 @@ asyncio_mode = "strict"
 [tool.ruff]
 target-version = "py311"
 line-length = 100
+
+[tool.ruff.lint]
+# Not in ruff's default set any more, but the code already carries noqa
+# markers for them and they are clean; keep them enforced.
+extend-select = ["E402", "F401", "S608"]
+ignore = [
+    # The server is built to never exit and to degrade instead of failing
+    # (see DESIGN.md, never-exit boot): broad catches that log, fall back
+    # or skip an item are deliberate throughout gateway, sync and tools.
+    "BLE001",
+    "S110",
+    "S112",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Fixture is RTL mail text that intentionally contains bidi control marks.
+"tests/test_bodyclean.py" = ["PLE2502"]

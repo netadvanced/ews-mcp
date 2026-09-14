@@ -29,12 +29,12 @@ import os
 import secrets
 import threading
 import time
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 DEFAULT_TTL_SECONDS = 600
 
 # sig -> expiry_ts of tokens already spent on a successful phase-2.
-_CONSUMED: Dict[str, float] = {}
+_CONSUMED: dict[str, float] = {}
 _CONSUMED_LOCK = threading.Lock()
 
 
@@ -71,7 +71,7 @@ def reset_consumed_tokens() -> None:
 _PROCESS_SECRET = secrets.token_hex(32)
 
 
-def _secret(explicit: Optional[str] = None) -> bytes:
+def _secret(explicit: str | None = None) -> bytes:
     val = explicit or os.environ.get("SEND_CONFIRM_SECRET") or _PROCESS_SECRET
     return val.encode("utf-8")
 
@@ -99,7 +99,7 @@ def make_token(
     target_id: str,
     chash: str,
     ttl_seconds: int = DEFAULT_TTL_SECONDS,
-    secret: Optional[str] = None,
+    secret: str | None = None,
 ) -> dict:
     """Mint a confirm token bound to (mailbox, action, target_id, chash)."""
     exp = int(time.time()) + int(ttl_seconds)
@@ -117,8 +117,8 @@ def verify_token(
     action: str,
     target_id: str,
     chash: str,
-    secret: Optional[str] = None,
-) -> Tuple[bool, str]:
+    secret: str | None = None,
+) -> tuple[bool, str]:
     """Validate a confirm token.
 
     Returns ``(ok, reason)`` where reason ∈

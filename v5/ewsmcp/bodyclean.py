@@ -331,8 +331,7 @@ def _norm_url(u: str) -> str:
     u = u.strip().casefold()
     u = re.sub(r"^(?:https?:)?//", "", u)
     u = re.sub(r"^mailto:", "", u)
-    if u.startswith("www."):
-        u = u[4:]
+    u = u.removeprefix("www.")
     return u.rstrip("/")
 
 

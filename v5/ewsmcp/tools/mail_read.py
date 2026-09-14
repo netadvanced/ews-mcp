@@ -18,9 +18,9 @@ import asyncio
 import json
 import logging
 import re
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 from zoneinfo import ZoneInfo
 
 from ..bodyclean import clean_body
@@ -39,26 +39,25 @@ _FRESH_PROPERTY = {
 }
 
 
-def _stamp(result: Dict[str, Any], source: str,
-           as_of_ts: Optional[int] = None) -> Dict[str, Any]:
+def _stamp(result: dict[str, Any], source: str,
+           as_of_ts: int | None = None) -> dict[str, Any]:
     result["source"] = source
     if source == "cache" and as_of_ts:
         result["as_of"] = datetime.fromtimestamp(
-            as_of_ts, tz=timezone.utc).isoformat(timespec="seconds")
+            as_of_ts, tz=UTC).isoformat(timespec="seconds")
     return result
 
 
-def _cache_folder_key(ctx: Context, folder_ref: Optional[str]) -> Optional[str]:
+def _cache_folder_key(ctx: Context, folder_ref: str | None) -> str | None:
     """Map a folder argument onto a mirrored folder key, or None (→ live)."""
     key = (folder_ref or "f:inbox").strip().lower()
-    if key.startswith("f:"):
-        key = key[2:]
+    key = key.removeprefix("f:")
     cached = {k.strip().lower()
               for k in (ctx.settings.ews_cache_folders or "").split(",")}
     return key if key in cached else None
 
 
-def _cache_watermark(ctx: Context, folder_key: str) -> Optional[int]:
+def _cache_watermark(ctx: Context, folder_key: str) -> int | None:
     if ctx.cache is None:
         return None
     return ctx.cache.watermark(f"item:{folder_key}")
@@ -76,10 +75,10 @@ def _row_body(ctx: Context, row: Any) -> str:
     return body
 
 
-def _row_card(ctx: Context, row: Any) -> Dict[str, Any]:
+def _row_card(ctx: Context, row: Any) -> dict[str, Any]:
     """Mirror row → the same MsgCard shape the live path emits."""
     body = _row_body(ctx, row)
-    card: Dict[str, Any] = {
+    card: dict[str, Any] = {
         "id": ctx.aliaser.alias_for(row["ews_id"], "m",
                                     changekey=row["changekey"],
                                     internet_message_id=row["internet_message_id"]),
@@ -101,7 +100,7 @@ def _row_card(ctx: Context, row: Any) -> Dict[str, Any]:
     return card
 
 
-def _row_full(ctx: Context, row: Any) -> Dict[str, Any]:
+def _row_full(ctx: Context, row: Any) -> dict[str, Any]:
     full = _row_card(ctx, row)
     full.pop("snippet", None)
     try:
@@ -144,7 +143,7 @@ _TEXT_CAP = 20_000
 # --------------------------------------------------------------------------
 
 
-def _project(qs: Any, order: Optional[str] = "-datetime_received") -> Any:
+def _project(qs: Any, order: str | None = "-datetime_received") -> Any:
     """Best-effort .order_by()/.only() — some folder types reject them."""
     if order:
         try:
@@ -158,7 +157,7 @@ def _project(qs: Any, order: Optional[str] = "-datetime_received") -> Any:
     return qs
 
 
-def _fetch_one(account: Any, raw_id: str, only: Optional[List[str]] = None) -> Any:
+def _fetch_one(account: Any, raw_id: str, only: list[str] | None = None) -> Any:
     """Fetch a single item by raw EWS id via account.fetch.
 
     account.fetch yields per-item results; a missing/stale id arrives as an
@@ -177,12 +176,12 @@ def _fetch_one(account: Any, raw_id: str, only: Optional[List[str]] = None) -> A
     return first
 
 
-async def _cards_off_loop(ctx: Context, items: List[Any], tz: str) -> List[Dict[str, Any]]:
+async def _cards_off_loop(ctx: Context, items: list[Any], tz: str) -> list[dict[str, Any]]:
     """Build msg cards on a worker thread: alias mints are SQLite write
     transactions and body cleaning is regex-heavy — neither belongs on the
     event loop. alias_many pre-mints the whole page in ONE transaction so
     the per-card alias_for calls hit the read-only fast path."""
-    def build() -> List[Dict[str, Any]]:
+    def build() -> list[dict[str, Any]]:
         ctx.aliaser.alias_many([
             (str(it.id), "m", getattr(it, "changekey", None),
              getattr(it, "message_id", None))
@@ -200,7 +199,7 @@ def _from(item: Any) -> str:
     return f"{name} <{email}>" if name and name != email else email
 
 
-def _pick_attachment(atts: List[Any], selector: Optional[str]) -> Any:
+def _pick_attachment(atts: list[Any], selector: str | None) -> Any:
     names = [getattr(a, "name", "") or f"attachment-{i}" for i, a in enumerate(atts)]
     if selector is None:
         if len(atts) == 1:
@@ -223,7 +222,7 @@ def _pick_attachment(atts: List[Any], selector: Optional[str]) -> Any:
     )
 
 
-def _is_texty(name: str, content_type: Optional[str]) -> bool:
+def _is_texty(name: str, content_type: str | None) -> bool:
     return ((content_type or "").lower().startswith("text/")
             or (name or "").lower().endswith(_TEXT_EXTS))
 
@@ -233,9 +232,9 @@ def _is_texty(name: str, content_type: Optional[str]) -> bool:
 # --------------------------------------------------------------------------
 
 
-async def _list_folders(ctx: Context, parent: Optional[str] = None, depth: int = 2,
+async def _list_folders(ctx: Context, parent: str | None = None, depth: int = 2,
                         include_empty: bool = True,
-                        fresh: bool = False) -> Dict[str, Any]:
+                        fresh: bool = False) -> dict[str, Any]:
     depth = max(1, min(int(depth), 5))
 
     # ---- mirror (the hierarchy lane refreshes counts every ~10 min) --------
@@ -252,7 +251,7 @@ async def _list_folders(ctx: Context, parent: Optional[str] = None, depth: int =
                     continue
                 if not include_empty and not r["total"]:
                     continue
-                row: Dict[str, Any] = {
+                row: dict[str, Any] = {
                     "id": ctx.aliaser.alias_for(r["ews_id"], "f"),
                     "name": r["name"], "path": r["path"],
                     "total": r["total"], "unread": r["unread"],
@@ -265,10 +264,10 @@ async def _list_folders(ctx: Context, parent: Optional[str] = None, depth: int =
             return _stamp(envelope(rows, total_available=len(rows), offset=0),
                           "cache", as_of)
 
-    def work(account: Any) -> List[Dict[str, Any]]:
+    def work(account: Any) -> list[dict[str, Any]]:
         root = (ctx.gateway.resolve_folder(account, parent, ctx.aliaser)
                 if parent else account.msg_folder_root)
-        wk_by_raw_id: Dict[Any, str] = {}
+        wk_by_raw_id: dict[Any, str] = {}
         for wk_alias, attr in WELL_KNOWN.items():
             try:  # best effort — wk tagging must never break the walk
                 fid = getattr(getattr(account, attr, None), "id", None)
@@ -276,7 +275,7 @@ async def _list_folders(ctx: Context, parent: Optional[str] = None, depth: int =
                     wk_by_raw_id.setdefault(fid, wk_alias)
             except Exception:
                 continue
-        rows: List[Dict[str, Any]] = []
+        rows: list[dict[str, Any]] = []
 
         def walk(folder: Any, level: int, prefix: str) -> None:
             if level > depth:
@@ -288,7 +287,7 @@ async def _list_folders(ctx: Context, parent: Optional[str] = None, depth: int =
                 raw_id = getattr(child, "id", None)
                 grandchildren = list(getattr(child, "children", None) or [])
                 if include_empty or total:
-                    row: Dict[str, Any] = {
+                    row: dict[str, Any] = {
                         "id": ctx.aliaser.alias_for(str(raw_id), "f") if raw_id else None,
                         "name": name,
                         "path": path,
@@ -315,7 +314,7 @@ async def _list_folders(ctx: Context, parent: Optional[str] = None, depth: int =
 
 
 async def _search_semantic(ctx: Context, query: str, folder_key: str,
-                           limit: int) -> Dict[str, Any]:
+                           limit: int) -> dict[str, Any]:
     """Hybrid retrieval: FTS rank + vector rank fused with RRF. Vector-tier
     outages degrade to keyword-only with a `degraded` note — never an error."""
     from ..semantic import rrf_merge
@@ -323,8 +322,8 @@ async def _search_semantic(ctx: Context, query: str, folder_key: str,
         ctx.cache.search_messages, folders=[folder_key], text=query,
         offset=0, limit=max(20, limit))
     fts_ids = [r["ews_id"] for r in fts_rows]
-    degraded: Optional[str] = None
-    sem_ids: List[str] = []
+    degraded: str | None = None
+    sem_ids: list[str] = []
     try:
         hits = await asyncio.to_thread(ctx.semantic.query, query, 20)
         sem_ids = [ews_id for ews_id, _score in hits]
@@ -332,7 +331,7 @@ async def _search_semantic(ctx: Context, query: str, folder_key: str,
         degraded = f"semantic tier unavailable ({type(exc).__name__}) — keyword-only"
     ranked = rrf_merge(fts_ids, sem_ids) if sem_ids else fts_ids
     rows_by_id = {r["ews_id"]: r for r in fts_rows}
-    cards: List[Dict[str, Any]] = []
+    cards: list[dict[str, Any]] = []
     for ews_id in ranked[:limit]:
         row = rows_by_id.get(ews_id)
         if row is None:
@@ -345,15 +344,15 @@ async def _search_semantic(ctx: Context, query: str, folder_key: str,
     return _stamp(out, "cache", _cache_watermark(ctx, folder_key))
 
 
-async def _search_messages(ctx: Context, query: Optional[str] = None,
-                           folder: str = "f:inbox", sender: Optional[str] = None,
-                           from_: Optional[str] = None,
-                           subject: Optional[str] = None, since: Optional[str] = None,
-                           until: Optional[str] = None, is_unread: Optional[bool] = None,
-                           has_attachments: Optional[bool] = None,
+async def _search_messages(ctx: Context, query: str | None = None,
+                           folder: str = "f:inbox", sender: str | None = None,
+                           from_: str | None = None,
+                           subject: str | None = None, since: str | None = None,
+                           until: str | None = None, is_unread: bool | None = None,
+                           has_attachments: bool | None = None,
                            offset: int = 0, limit: int = 20,
                            mode: str = "keyword",
-                           fresh: bool = False) -> Dict[str, Any]:
+                           fresh: bool = False) -> dict[str, Any]:
     offset = max(0, int(offset))
     limit = max(1, min(int(limit), 50))
     if mode == "semantic":
@@ -419,7 +418,7 @@ async def _search_messages(ctx: Context, query: Optional[str] = None,
                 logger.warning("cache search failed (%s) — falling back live", exc)
 
     # ---- live path ---------------------------------------------------------
-    filters: Dict[str, Any] = {}
+    filters: dict[str, Any] = {}
     if subject:
         filters["subject__icontains"] = subject
     if since:
@@ -433,9 +432,9 @@ async def _search_messages(ctx: Context, query: Optional[str] = None,
 
     unfiltered = not query and not filters and not sender
 
-    def work(account: Any) -> Tuple[List[Any], Optional[int], Optional[int]]:
+    def work(account: Any) -> tuple[list[Any], int | None, int | None]:
         target = ctx.gateway.resolve_folder(account, folder, ctx.aliaser)
-        total: Optional[int] = None
+        total: int | None = None
         if unfiltered:
             # Exact totals are only cheap for a plain listing: one refreshed
             # folder property instead of a count() full-folder scan.
@@ -472,7 +471,7 @@ async def _search_messages(ctx: Context, query: Optional[str] = None,
 
 async def _get_message(ctx: Context, id: str, format: str = "full",
                        include_html: bool = False,
-                       fresh: bool = False) -> Dict[str, Any]:
+                       fresh: bool = False) -> dict[str, Any]:
     raw_id = id
     tz = ctx.settings.ews_tz
     # Mirror unless the caller needs live data: fresh=true, raw HTML, or an
@@ -507,7 +506,7 @@ async def _get_message(ctx: Context, id: str, format: str = "full",
 
 
 def _thread_from_cache(ctx: Context, raw_id: str, limit: int,
-                       offset: int) -> Optional[Dict[str, Any]]:
+                       offset: int) -> dict[str, Any] | None:
     """Local conversation_id join — sync helper, runs on a worker thread."""
     seed = ctx.cache.get_message(raw_id)
     if seed is None or not seed["conversation_id"]:
@@ -520,13 +519,13 @@ def _thread_from_cache(ctx: Context, raw_id: str, limit: int,
     lo = max(0, hi - limit)
     window = rows[lo:hi]
     next_offset = offset + len(window) if lo > 0 else None
-    counts: Dict[str, int] = {}
+    counts: dict[str, int] = {}
     for r in rows:
         who = r["sender_email"] or "unknown"
         counts[who] = counts.get(who, 0) + 1
-    entries: List[Dict[str, Any]] = []
+    entries: list[dict[str, Any]] = []
     for r in window:
-        entry: Dict[str, Any] = {
+        entry: dict[str, Any] = {
             "id": ctx.aliaser.alias_for(r["ews_id"], "m",
                                         internet_message_id=r["internet_message_id"]),
             "from": r["sender_email"] or "unknown",
@@ -553,7 +552,7 @@ def _thread_from_cache(ctx: Context, raw_id: str, limit: int,
 
 
 async def _get_thread(ctx: Context, id: str, limit: int = 20,
-                      offset: int = 0, fresh: bool = False) -> Dict[str, Any]:
+                      offset: int = 0, fresh: bool = False) -> dict[str, Any]:
     limit = max(1, min(int(limit), 50))
     offset = max(0, int(offset))
     raw_id = id
@@ -572,7 +571,7 @@ async def _get_thread(ctx: Context, id: str, limit: int = 20,
                 default=None)
             return _stamp(cached, "cache", as_of)
 
-    def work(account: Any) -> Tuple[Any, str, List[Any]]:
+    def work(account: Any) -> tuple[Any, str, list[Any]]:
         seed = _fetch_one(account, raw_id)
         conv_obj = getattr(seed, "conversation_id", None)
         conv_id = getattr(conv_obj, "id", None)
@@ -587,7 +586,7 @@ async def _get_thread(ctx: Context, id: str, limit: int = 20,
         # is exactly that object; the string form is only used for the
         # thread alias. (Behavior pinned in test_exchangelib_signatures.)
         conv_str = str(conv_id)
-        merged: Dict[str, Any] = {}
+        merged: dict[str, Any] = {}
         for source in (account.inbox, account.sent):
             qs = _project(source.filter(conversation_id=conv_obj), order=None)
             for it in qs:
@@ -602,7 +601,7 @@ async def _get_thread(ctx: Context, id: str, limit: int = 20,
 
     def sort_key(it: Any) -> datetime:
         dt = getattr(it, "datetime_received", None)
-        return dt if dt is not None else datetime.min.replace(tzinfo=timezone.utc)
+        return dt if dt is not None else datetime.min.replace(tzinfo=UTC)
 
     found.sort(key=sort_key)
     total = len(found)
@@ -613,8 +612,8 @@ async def _get_thread(ctx: Context, id: str, limit: int = 20,
     window = found[lo:hi]
     next_offset = offset + len(window) if lo > 0 else None
 
-    def build() -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
-        counts: Dict[str, int] = {}
+    def build() -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        counts: dict[str, int] = {}
         for it in found:  # participants count the WHOLE thread, not the page
             counts[_from(it) or "unknown"] = counts.get(_from(it) or "unknown", 0) + 1
         ctx.aliaser.alias_many([
@@ -622,10 +621,10 @@ async def _get_thread(ctx: Context, id: str, limit: int = 20,
              getattr(it, "message_id", None))
             for it in window if getattr(it, "id", None)
         ])
-        entries: List[Dict[str, Any]] = []
+        entries: list[dict[str, Any]] = []
         for it in window:
             raw = str(getattr(it, "id", "") or "")
-            entry: Dict[str, Any] = {
+            entry: dict[str, Any] = {
                 "id": ctx.aliaser.alias_for(
                     raw, "m", internet_message_id=getattr(it, "message_id", None),
                 ) if raw else None,
@@ -662,11 +661,11 @@ async def _get_thread(ctx: Context, id: str, limit: int = 20,
 
 
 async def _get_attachment(ctx: Context, message_id: str,
-                          attachment: Optional[str] = None,
-                          mode: str = "auto") -> Dict[str, Any]:
+                          attachment: str | None = None,
+                          mode: str = "auto") -> dict[str, Any]:
     raw_id = message_id
 
-    def work(account: Any) -> Dict[str, Any]:
+    def work(account: Any) -> dict[str, Any]:
         item = _fetch_one(account, raw_id, only=["attachments"])
         atts = list(getattr(item, "attachments", None) or [])
         if not atts:
@@ -674,7 +673,7 @@ async def _get_attachment(ctx: Context, message_id: str,
         att = _pick_attachment(atts, attachment)
         name = getattr(att, "name", "") or "attachment"
         content_type = getattr(att, "content_type", None)
-        out: Dict[str, Any] = {
+        out: dict[str, Any] = {
             "ok": True,
             "name": name,
             "size_bytes": getattr(att, "size", None),
@@ -722,7 +721,7 @@ async def _get_attachment(ctx: Context, message_id: str,
 
 
 async def _get_mailbox_overview(ctx: Context, horizon_days: int = 1,
-                                fresh: bool = False) -> Dict[str, Any]:
+                                fresh: bool = False) -> dict[str, Any]:
     horizon_days = max(1, min(int(horizon_days), 14))
     tz = ctx.settings.ews_tz
     now = datetime.now(ZoneInfo(tz))
@@ -762,7 +761,7 @@ async def _get_mailbox_overview(ctx: Context, horizon_days: int = 1,
         except Exception as exc:
             logger.warning("cache overview failed (%s) — live", exc)
 
-    def work(account: Any) -> Tuple[int, List[Any], List[Any]]:
+    def work(account: Any) -> tuple[int, list[Any], list[Any]]:
         try:
             # unread_count is a stored field — refresh or report yesterday's.
             account.inbox.refresh()
@@ -794,7 +793,7 @@ async def _get_mailbox_overview(ctx: Context, horizon_days: int = 1,
 # --------------------------------------------------------------------------
 
 
-async def _find_similar(ctx: Context, id: str, top_k: int = 5) -> Dict[str, Any]:
+async def _find_similar(ctx: Context, id: str, top_k: int = 5) -> dict[str, Any]:
     top_k = max(1, min(int(top_k), 20))
     raw_id = id
     if ctx.semantic is None:  # defensive; the tool is unregistered when off
@@ -808,7 +807,7 @@ async def _find_similar(ctx: Context, id: str, top_k: int = 5) -> Dict[str, Any]
         raise ToolError("upstream_unavailable",
                         f"semantic tier unavailable: {type(exc).__name__}",
                         hint="Retry later or use search_messages mode='keyword'.")
-    cards: List[Dict[str, Any]] = []
+    cards: list[dict[str, Any]] = []
     for ews_id, score in hits:
         row = await asyncio.to_thread(ctx.cache.get_message, ews_id)
         if row is not None:
@@ -819,7 +818,7 @@ async def _find_similar(ctx: Context, id: str, top_k: int = 5) -> Dict[str, Any]
     return _stamp(out, "cache")
 
 
-SEMANTIC_TOOLS: List["ToolSpec"] = []  # populated below, after _schema is defined
+SEMANTIC_TOOLS: list["ToolSpec"] = []  # populated below, after _schema is defined
 
 
 # --------------------------------------------------------------------------
@@ -827,9 +826,9 @@ SEMANTIC_TOOLS: List["ToolSpec"] = []  # populated below, after _schema is defin
 # --------------------------------------------------------------------------
 
 
-def _schema(properties: Dict[str, Any],
-            required: Optional[List[str]] = None) -> Dict[str, Any]:
-    schema: Dict[str, Any] = {
+def _schema(properties: dict[str, Any],
+            required: list[str] | None = None) -> dict[str, Any]:
+    schema: dict[str, Any] = {
         "type": "object",
         "additionalProperties": False,
         "properties": properties,
@@ -839,7 +838,7 @@ def _schema(properties: Dict[str, Any],
     return schema
 
 
-TOOLS: List[ToolSpec] = [
+TOOLS: list[ToolSpec] = [
     ToolSpec(
         name="list_folders",
         description=(

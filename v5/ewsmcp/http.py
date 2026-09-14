@@ -3,7 +3,7 @@
 import hmac
 import json
 import logging
-from typing import Any, Dict, Optional
+from typing import Any
 
 import jsonschema
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
@@ -38,13 +38,12 @@ def _authorized(headers, api_key: str) -> bool:
         if lname == b"authorization" and raw.lower().startswith("bearer "):
             if hmac.compare_digest(raw[7:].strip().encode(), expected):
                 return True
-        elif lname == b"x-api-key":
-            if hmac.compare_digest(raw.strip().encode(), expected):
-                return True
+        elif lname == b"x-api-key" and hmac.compare_digest(raw.strip().encode(), expected):
+            return True
     return False
 
 
-async def _send_json(send, status: int, payload: Dict[str, Any]) -> None:
+async def _send_json(send, status: int, payload: dict[str, Any]) -> None:
     body = json.dumps(payload, ensure_ascii=False, default=str).encode()
     await send({"type": "http.response.start", "status": status, "headers": [
         [b"content-type", b"application/json"],
@@ -97,7 +96,7 @@ def _metrics_text(ctx) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _openapi(ctx) -> Dict[str, Any]:
+def _openapi(ctx) -> dict[str, Any]:
     paths = {}
     for name, spec in ctx.registry.items():
         schema = spec.public_schema()
@@ -112,7 +111,7 @@ def _openapi(ctx) -> Dict[str, Any]:
             "paths": paths}
 
 
-async def _read_json_body(receive, send) -> Optional[Any]:
+async def _read_json_body(receive, send) -> Any | None:
     """Drain the request body (bounded) and parse JSON.
 
     Returns the parsed value, or None after having already sent an error
@@ -144,7 +143,7 @@ async def _read_json_body(receive, send) -> Optional[Any]:
         return None
 
 
-def build_app(ctx, settings, streamable: Optional[Any] = None):
+def build_app(ctx, settings, streamable: Any | None = None):
     """ASGI app closure — separated from serve_http so tests can drive it."""
     api_key = settings.mcp_api_key or ""
 

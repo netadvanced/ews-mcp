@@ -1,7 +1,7 @@
 """Error taxonomy — every failure the model sees is one of these codes,
 with a hint written for the model, never a traceback (DESIGN.md §Errors)."""
 
-from typing import Any, Dict, Optional
+from typing import Any
 
 HTTP_BY_CODE = {
     "validation": 400,
@@ -24,8 +24,8 @@ class ToolError(Exception):
         self,
         code: str,
         message: str,
-        hint: Optional[str] = None,
-        retry_after_s: Optional[int] = None,
+        hint: str | None = None,
+        retry_after_s: int | None = None,
     ):
         super().__init__(message)
         self.code = code if code in HTTP_BY_CODE else "internal"
@@ -33,8 +33,8 @@ class ToolError(Exception):
         self.hint = hint
         self.retry_after_s = retry_after_s
 
-    def to_dict(self) -> Dict[str, Any]:
-        err: Dict[str, Any] = {"code": self.code, "message": self.message}
+    def to_dict(self) -> dict[str, Any]:
+        err: dict[str, Any] = {"code": self.code, "message": self.message}
         if self.hint:
             err["hint"] = self.hint
         if self.retry_after_s is not None:

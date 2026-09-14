@@ -7,6 +7,7 @@ from datetime import date
 from types import SimpleNamespace
 
 from conftest import make_settings
+from test_cache_store import make_row
 
 from ewsmcp.audit import AuditLog
 from ewsmcp.cache.store import SIG_MIN_HITS, CacheStore
@@ -14,8 +15,6 @@ from ewsmcp.ids import get_aliaser
 from ewsmcp.semantic import rrf_merge
 from ewsmcp.tools import build_registry
 from ewsmcp.tools.base import Context, dispatch
-
-from test_cache_store import make_row
 
 
 class Gateway:
