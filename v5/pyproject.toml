@@ -21,7 +21,7 @@ dependencies = [
 dev = [
     "pytest>=8",
     "pytest-asyncio>=0.23",
-    "ruff>=0.4",
+    "ruff==0.16.7",
 ]
 
 [project.scripts]
@@ -37,3 +37,8 @@ asyncio_mode = "strict"
 [tool.ruff]
 target-version = "py311"
 line-length = 100
+
+[tool.ruff.lint]
+# Not in ruff's default set any more, but the code already carries noqa
+# markers for them and they are clean; keep them enforced.
+extend-select = ["E402", "F401", "S608"]
