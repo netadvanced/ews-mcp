@@ -62,11 +62,11 @@ class EWSGateway:
     def _build_account(self) -> Account:
         s = self.settings
         BaseProtocol.TIMEOUT = s.request_timeout
-        kwargs: dict[str, Any] = dict(
-            service_endpoint=s.ews_server_url,
-            credentials=Credentials(s.ews_username or s.ews_email, s.ews_password or ""),
-            retry_policy=FaultTolerance(max_wait=s.ews_retry_max_wait_seconds),
-        )
+        kwargs: dict[str, Any] = {
+            "service_endpoint": s.ews_server_url,
+            "credentials": Credentials(s.ews_username or s.ews_email, s.ews_password or ""),
+            "retry_policy": FaultTolerance(max_wait=s.ews_retry_max_wait_seconds),
+        }
         if s.ews_auth_type_force:  # escape hatch for a DIFFERENT Exchange only
             logger.warning("auth_type FORCED to %s — the primary Exchange requires auto-negotiation",
                            s.ews_auth_type_force)

@@ -231,8 +231,8 @@ async def _check_availability(ctx: Context, attendees: list[str], start: str,
     out: dict[str, Any] = {"ok": True, "slots": slots, "per_attendee": per_attendee}
     if degraded:
         out["warnings"] = [
-            f"free/busy unavailable for: {', '.join(degraded)} — slots "
-            "ignore their calendars"
+            (f"free/busy unavailable for: {', '.join(degraded)} — slots "
+             "ignore their calendars")
         ]
     return out
 

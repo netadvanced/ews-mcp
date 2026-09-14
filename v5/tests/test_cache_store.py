@@ -112,7 +112,7 @@ def test_write_through_patches(store):
     assert json.loads(store.get_message("M1")["categories_json"]) == ["Follow up"]
     store.tombstone_messages(["M1"])
     assert store.get_message("M1") is None
-    rows, total = store.search_messages(text="budget")
+    _rows, total = store.search_messages(text="budget")
     assert total == 0  # FTS shadow deleted with the row
 
 

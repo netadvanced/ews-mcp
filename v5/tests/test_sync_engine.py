@@ -176,6 +176,6 @@ def test_slow_lane_syncs_folders_calendar_tasks(tmp_path):
     folders = {r["path"]: r for r in store.folder_rows()}
     assert folders["Inbox"]["unread"] == 2
     assert store.events_window(0, 2**40)
-    rows, total = store.task_rows()
+    _rows, total = store.task_rows()
     assert total == 1
     assert store.get_sync_state("item:tasks") == "TT-1"

@@ -35,12 +35,12 @@ def make_settings(**overrides):
     would (correctly) refuse a relative path resolved inside the repo.
     """
     from ewsmcp.config import Settings
-    base = dict(
-        ews_server_url="https://mail.corp.example/EWS/Exchange.asmx",
-        ews_email="exec@corp.example",
-        ews_username="svc",
-        ews_password="pw",
-        mcp_transport="stdio",
-    )
+    base = {
+        "ews_server_url": "https://mail.corp.example/EWS/Exchange.asmx",
+        "ews_email": "exec@corp.example",
+        "ews_username": "svc",
+        "ews_password": "pw",
+        "mcp_transport": "stdio",
+    }
     base.update(overrides)
     return Settings(**base)

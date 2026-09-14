@@ -13,7 +13,7 @@ def test_tool_table_matches_registry():
     proc = subprocess.run(
         [sys.executable, str(V5_ROOT / "scripts" / "dump_tool_table.py"),
          "--check"],
-        capture_output=True, text=True, cwd=str(V5_ROOT),
+        capture_output=True, text=True, cwd=str(V5_ROOT), check=False,
     )
     assert proc.returncode == 0, proc.stdout + proc.stderr
 

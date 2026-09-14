@@ -51,10 +51,10 @@ def build_table() -> str:
     packs = _packs()
     core = sum(len(t) for _n, t in packs[:4])
     lines = [
-        f"**{core} tools** in the default registry "
-        f"(+{len(mail_read.SEMANTIC_TOOLS)} with the semantic tier). "
-        "Capability tiers: read ⊂ draft ⊂ full — a tool is available when "
-        "the server tier is at or above its minimum.",
+        (f"**{core} tools** in the default registry "
+         f"(+{len(mail_read.SEMANTIC_TOOLS)} with the semantic tier). "
+         "Capability tiers: read ⊂ draft ⊂ full — a tool is available when "
+         "the server tier is at or above its minimum."),
         "",
         "| tool | class | min tier | what it does |",
         "|---|---|---|---|",

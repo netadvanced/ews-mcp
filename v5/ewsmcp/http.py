@@ -38,9 +38,8 @@ def _authorized(headers, api_key: str) -> bool:
         if lname == b"authorization" and raw.lower().startswith("bearer "):
             if hmac.compare_digest(raw[7:].strip().encode(), expected):
                 return True
-        elif lname == b"x-api-key":
-            if hmac.compare_digest(raw.strip().encode(), expected):
-                return True
+        elif lname == b"x-api-key" and hmac.compare_digest(raw.strip().encode(), expected):
+            return True
     return False
 
 
