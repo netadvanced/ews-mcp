@@ -10,10 +10,11 @@ import asyncio
 import logging
 import threading
 import time
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any
 
-from exchangelib import Account, Configuration, Credentials, DELEGATE, EWSTimeZone
+from exchangelib import DELEGATE, Account, Configuration, Credentials, EWSTimeZone
 from exchangelib.protocol import (
     BaseProtocol,
     CachingProtocol,
@@ -36,14 +37,14 @@ WELL_KNOWN = {
 class EWSGateway:
     def __init__(self, settings: Settings):
         self.settings = settings
-        self._account: Optional[Account] = None
+        self._account: Account | None = None
         self._account_lock = threading.Lock()
         self._pool = ThreadPoolExecutor(
             max_workers=max(1, settings.ews_max_concurrency),
             thread_name_prefix="ews",
         )
-        self.last_connection_error: Optional[str] = None
-        self._folder_cache: Dict[str, Any] = {}
+        self.last_connection_error: str | None = None
+        self._folder_cache: dict[str, Any] = {}
         self._folder_cache_ts = 0.0
         if settings.ews_insecure_skip_verify:
             BaseProtocol.HTTP_ADAPTER_CLS = NoVerifyHTTPAdapter
@@ -61,7 +62,7 @@ class EWSGateway:
     def _build_account(self) -> Account:
         s = self.settings
         BaseProtocol.TIMEOUT = s.request_timeout
-        kwargs: Dict[str, Any] = dict(
+        kwargs: dict[str, Any] = dict(
             service_endpoint=s.ews_server_url,
             credentials=Credentials(s.ews_username or s.ews_email, s.ews_password or ""),
             retry_policy=FaultTolerance(max_wait=s.ews_retry_max_wait_seconds),
@@ -129,12 +130,12 @@ class EWSGateway:
 
     # ------------------------------------------------------------- folders
 
-    def _folder_map(self, account: Account) -> Dict[str, Any]:
+    def _folder_map(self, account: Account) -> dict[str, Any]:
         """{raw_id|lower_path: Folder} cache, rebuilt every 300s (sync)."""
         now = time.time()
         if self._folder_cache and now - self._folder_cache_ts < 300:
             return self._folder_cache
-        cache: Dict[str, Any] = {}
+        cache: dict[str, Any] = {}
         try:
             for folder in account.msg_folder_root.walk():
                 if getattr(folder, "id", None):
@@ -153,7 +154,7 @@ class EWSGateway:
             self._folder_cache_ts = now
         return cache
 
-    def resolve_folder(self, account: Account, ref: Optional[str], aliaser) -> Any:
+    def resolve_folder(self, account: Account, ref: str | None, aliaser) -> Any:
         """well-known alias | folder alias (f12) | path | raw id → Folder (sync)."""
         if not ref:
             return account.inbox
@@ -176,7 +177,7 @@ class EWSGateway:
 
 
 def paginate(query: Any, *, offset: int, limit: int,
-             chunk: int = 50) -> Tuple[List[Any], Optional[int]]:
+             chunk: int = 50) -> tuple[list[Any], int | None]:
     """Materialize query[offset:offset+limit] in chunks (sync, raises on
     mid-iteration failure — the caller's error mapper classifies it).
 
@@ -190,7 +191,7 @@ def paginate(query: Any, *, offset: int, limit: int,
     offset = max(0, offset)
     limit = max(0, limit)
     lookahead = limit + 1
-    items: List[Any] = []
+    items: list[Any] = []
     cursor = offset
     chunk = max(1, min(chunk, 250))
     while len(items) < lookahead:

@@ -1,2 +1,2 @@
-from .client import EWSGateway, paginate, WELL_KNOWN  # noqa: F401
+from .client import WELL_KNOWN, EWSGateway, paginate  # noqa: F401
 from .connection import ConnectionManager  # noqa: F401

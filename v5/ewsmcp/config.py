@@ -1,7 +1,7 @@
 """Environment-driven configuration (12-factor; every knob defaults safe)."""
 
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Literal
 
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -20,12 +20,12 @@ class Settings(BaseSettings):
     # --- Exchange upstream -------------------------------------------------
     ews_server_url: str
     ews_email: str
-    ews_username: Optional[str] = None
-    ews_password: Optional[str] = None
+    ews_username: str | None = None
+    ews_password: str | None = None
     # NEVER pin auth_type against this Exchange: the front door only works
     # via exchangelib auto-negotiation (verified live 2026-06-12; pinning
     # BASIC/NTLM both fail). Escape hatch for a *different* server only.
-    ews_auth_type_force: Optional[Literal["basic", "ntlm", "digest"]] = None
+    ews_auth_type_force: Literal["basic", "ntlm", "digest"] | None = None
     ews_insecure_skip_verify: bool = False
     ews_tz: str = "Asia/Riyadh"
     request_timeout: int = 30
@@ -41,7 +41,7 @@ class Settings(BaseSettings):
     # --- Safety -------------------------------------------------------------
     ews_capability_tier: Literal["read", "draft", "full"] = "draft"
     send_enabled: bool = False  # kill-switch: v5 defaults SAFE (off)
-    send_confirm_secret: Optional[str] = None
+    send_confirm_secret: str | None = None
     confirm_ttl_seconds: int = 600  # ONE default everywhere (== confirm.DEFAULT_TTL_SECONDS)
     ews_recipient_allowlist: str = ""
     ews_recipient_denylist: str = ""
@@ -51,7 +51,7 @@ class Settings(BaseSettings):
     mcp_transport: Literal["stdio", "http"] = "stdio"
     mcp_host: str = "127.0.0.1"
     mcp_port: int = 8000
-    mcp_api_key: Optional[str] = None
+    mcp_api_key: str | None = None
     log_level: str = "INFO"
 
     # --- Storage (NEVER a synced folder) -------------------------------------
@@ -68,7 +68,7 @@ class Settings(BaseSettings):
 
     # --- Optional semantic tier (adapter; core stays dependency-free) --------
     ews_semantic_index: Literal["none", "pgvector"] = "none"
-    ews_semantic_pg_dsn: Optional[str] = None  # from env only, never committed
+    ews_semantic_pg_dsn: str | None = None  # from env only, never committed
     ews_semantic_ollama_url: str = "http://localhost:11434"
     ews_semantic_model: str = "bge-m3"  # 1024-d, Arabic-capable
 

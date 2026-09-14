@@ -2,14 +2,14 @@
 ``id`` IS the short alias; the aliaser holds the raw id + changekey."""
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 from zoneinfo import ZoneInfo
 
 from .bodyclean import clean_body, html_to_text, strip_quoted_history
 from .ids import IdAliaser
 
 
-def fmt_dt(value: Any, tz: str) -> Optional[str]:
+def fmt_dt(value: Any, tz: str) -> str | None:
     if value is None or not hasattr(value, "astimezone"):
         return None
     try:
@@ -21,14 +21,14 @@ def fmt_dt(value: Any, tz: str) -> Optional[str]:
 _DERIVE = object()  # sentinel: derive next_offset from total_available
 
 
-def envelope(items: List[Dict[str, Any]], total_available: Optional[int],
-             offset: int, next_offset: Any = _DERIVE) -> Dict[str, Any]:
+def envelope(items: list[dict[str, Any]], total_available: int | None,
+             offset: int, next_offset: Any = _DERIVE) -> dict[str, Any]:
     """Canonical paged envelope: {items, count, total_available, next_offset}.
 
     ``next_offset`` may be passed explicitly (lookahead pagination knows it
     without knowing the total); by default it derives from total_available.
     """
-    out: Dict[str, Any] = {
+    out: dict[str, Any] = {
         "ok": True,
         "items": items,
         "count": len(items),
@@ -50,14 +50,14 @@ def _addr(mailbox: Any) -> str:
     return f"{name} <{email}>" if name and name != email else email
 
 
-def _emails(recipients: Any) -> List[str]:
+def _emails(recipients: Any) -> list[str]:
     return [
         r.email_address for r in (recipients or [])
         if getattr(r, "email_address", None)
     ]
 
 
-def msg_card(item: Any, aliaser: IdAliaser, tz: str) -> Dict[str, Any]:
+def msg_card(item: Any, aliaser: IdAliaser, tz: str) -> dict[str, Any]:
     """MsgCard: the ≤~60-token search/list unit."""
     text = getattr(item, "text_body", None) or ""
     try:
@@ -66,7 +66,7 @@ def msg_card(item: Any, aliaser: IdAliaser, tz: str) -> Dict[str, Any]:
         pass
     raw_id = getattr(getattr(item, "id", None), "__str__", lambda: None)() or getattr(item, "id", None)
     imid = getattr(item, "message_id", None)
-    card: Dict[str, Any] = {
+    card: dict[str, Any] = {
         "id": aliaser.alias_for(str(raw_id), "m", internet_message_id=imid) if raw_id else None,
         "from": _addr(getattr(item, "sender", None)),
         "subject": getattr(item, "subject", "") or "",
@@ -90,7 +90,7 @@ def msg_card(item: Any, aliaser: IdAliaser, tz: str) -> Dict[str, Any]:
 
 
 def msg_full(item: Any, aliaser: IdAliaser, tz: str, body_max_chars: int,
-             include_html: bool = False) -> Dict[str, Any]:
+             include_html: bool = False) -> dict[str, Any]:
     """MsgFull: card + cleaned body + recipients + attachment inventory."""
     full = msg_card(item, aliaser, tz)
     full["to"] = _emails(getattr(item, "to_recipients", None))
@@ -132,9 +132,9 @@ def msg_full(item: Any, aliaser: IdAliaser, tz: str, body_max_chars: int,
     return full
 
 
-def event_card(item: Any, aliaser: IdAliaser, tz: str) -> Dict[str, Any]:
+def event_card(item: Any, aliaser: IdAliaser, tz: str) -> dict[str, Any]:
     raw_id = getattr(item, "id", None)
-    card: Dict[str, Any] = {
+    card: dict[str, Any] = {
         "id": aliaser.alias_for(str(raw_id), "e") if raw_id else None,
         "subject": getattr(item, "subject", "") or "",
         "start": fmt_dt(getattr(item, "start", None), tz),

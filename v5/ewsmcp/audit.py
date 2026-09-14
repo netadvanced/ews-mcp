@@ -15,7 +15,7 @@ import json
 import threading
 import time
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 
 class AuditLog:
@@ -39,9 +39,9 @@ class AuditLog:
         outcome: str,
         latency_ms: int,
         transport: str = "-",
-        detail: Optional[Dict[str, Any]] = None,
+        detail: dict[str, Any] | None = None,
     ) -> None:
-        entry: Dict[str, Any] = {
+        entry: dict[str, Any] = {
             "ts": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
             "tool": tool,
             "class": side_effect_class,

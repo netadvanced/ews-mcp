@@ -20,7 +20,7 @@ import json
 import logging
 import time
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional
+from typing import Any
 from zoneinfo import ZoneInfo
 
 from ..bodyclean import clean_body
@@ -43,14 +43,14 @@ CALENDAR_WINDOW_DAYS = 14
 CALENDAR_MAX_ITEMS = 200
 
 
-def _ts(dt: Any) -> Optional[int]:
+def _ts(dt: Any) -> int | None:
     try:
         return int(dt.timestamp())
     except (AttributeError, OSError, OverflowError, ValueError, TypeError):
         return None
 
 
-def row_from_message(item: Any, folder_key: str, tz: str) -> Dict[str, Any]:
+def row_from_message(item: Any, folder_key: str, tz: str) -> dict[str, Any]:
     """Message item → mirror row. Body cleaned HERE (the 700× paid once)."""
     sender = getattr(item, "sender", None)
     sender_email = getattr(sender, "email_address", None) or ""
@@ -94,7 +94,7 @@ def row_from_message(item: Any, folder_key: str, tz: str) -> Dict[str, Any]:
     }
 
 
-def row_from_event(item: Any, tz: str) -> Dict[str, Any]:
+def row_from_event(item: Any, tz: str) -> dict[str, Any]:
     organizer = getattr(item, "organizer", None)
     return {
         "ews_id": str(getattr(item, "id", "") or ""),
@@ -112,7 +112,7 @@ def row_from_event(item: Any, tz: str) -> Dict[str, Any]:
     }
 
 
-def row_from_task(item: Any, tz: str) -> Dict[str, Any]:
+def row_from_task(item: Any, tz: str) -> dict[str, Any]:
     due = getattr(item, "due_date", None)
     return {
         "ews_id": str(getattr(item, "id", "") or ""),
@@ -137,10 +137,10 @@ class SyncEngine:
             k.strip().lower()
             for k in (settings.ews_cache_folders or "").split(",") if k.strip()
         ]
-        self.last_error: Optional[str] = None
-        self.last_cycle_ts: Optional[float] = None
+        self.last_error: str | None = None
+        self.last_cycle_ts: float | None = None
         self.cycles = 0
-        self._task: Optional[asyncio.Task] = None
+        self._task: asyncio.Task | None = None
         self._stopped = False
         self._last_slow_ts = 0.0
 
@@ -161,7 +161,7 @@ class SyncEngine:
             except (asyncio.CancelledError, Exception):
                 pass
 
-    def status(self) -> Dict[str, Any]:
+    def status(self) -> dict[str, Any]:
         return {
             "cycles": self.cycles,
             "last_cycle_age_s": (int(time.time() - self.last_cycle_ts)
@@ -206,9 +206,9 @@ class SyncEngine:
             if folder is None:
                 continue
             token = self.store.get_sync_state(f"item:{key}")
-            upserts: List[Dict[str, Any]] = []
-            deletes: List[str] = []
-            read_flags: List[tuple] = []
+            upserts: list[dict[str, Any]] = []
+            deletes: list[str] = []
+            read_flags: list[tuple] = []
             for change_type, payload in folder.sync_items(
                 sync_state=token, only_fields=ITEM_FIELDS,
             ):
@@ -244,8 +244,8 @@ class SyncEngine:
         """Folder tree + expanded calendar window + tasks (every ~10 min)."""
         tz = self.settings.ews_tz
         # Folder tree with fresh counts — the frozen-counts fix.
-        rows: List[Dict[str, Any]] = []
-        wk_by_raw: Dict[str, str] = {}
+        rows: list[dict[str, Any]] = []
+        wk_by_raw: dict[str, str] = {}
         for wk_alias, attr in WELL_KNOWN.items():
             try:
                 fid = getattr(getattr(account, attr, None), "id", None)
@@ -299,8 +299,8 @@ class SyncEngine:
             tasks_folder = getattr(account, "tasks", None)
             if tasks_folder is not None:
                 token = self.store.get_sync_state("item:tasks")
-                upserts: List[Dict[str, Any]] = []
-                deletes: List[str] = []
+                upserts: list[dict[str, Any]] = []
+                deletes: list[str] = []
                 for change_type, payload in tasks_folder.sync_items(
                     sync_state=token, only_fields=TASK_FIELDS,
                 ):

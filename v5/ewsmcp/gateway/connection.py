@@ -20,7 +20,8 @@ import logging
 import random
 import threading
 import time
-from typing import Any, Callable, Coroutine, Dict, Optional
+from collections.abc import Callable, Coroutine
+from typing import Any
 
 STATE_CONNECTING = "connecting"
 STATE_WARM = "warm"
@@ -53,14 +54,14 @@ class ConnectionManager:
         self._lock = threading.Lock()
         self._state = STATE_CONNECTING
         self._attempts = 0
-        self._last_error: Optional[str] = None
-        self._last_success_ts: Optional[float] = None
-        self._next_retry_ts: Optional[float] = None
+        self._last_error: str | None = None
+        self._last_success_ts: float | None = None
+        self._next_retry_ts: float | None = None
 
-        self._task: Optional[asyncio.Task] = None
-        self._heartbeat_task: Optional[asyncio.Task] = None
+        self._task: asyncio.Task | None = None
+        self._heartbeat_task: asyncio.Task | None = None
         self._stopped = False
-        self._on_warm: Optional[Callable[[], Coroutine[Any, Any, None]]] = None
+        self._on_warm: Callable[[], Coroutine[Any, Any, None]] | None = None
         self._on_warm_fired = False
 
     # ------------------------------------------------------------------ state
@@ -74,7 +75,7 @@ class ConnectionManager:
     def is_warm(self) -> bool:
         return self.state == STATE_WARM
 
-    def status(self) -> Dict[str, Any]:
+    def status(self) -> dict[str, Any]:
         """Snapshot for /readyz and whoami. Never raises, never blocks on EWS."""
         with self._lock:
             now = time.time()
@@ -99,7 +100,7 @@ class ConnectionManager:
 
     async def start(
         self,
-        on_warm: Optional[Callable[[], Coroutine[Any, Any, None]]] = None,
+        on_warm: Callable[[], Coroutine[Any, Any, None]] | None = None,
     ) -> None:
         """Begin the background warmup loop. Returns immediately."""
         self._on_warm = on_warm

@@ -7,7 +7,6 @@ hatch.
 """
 
 import pytest
-
 from conftest import make_settings
 
 

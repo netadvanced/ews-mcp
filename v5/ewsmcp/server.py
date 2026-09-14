@@ -1,7 +1,7 @@
 """MCP wiring: low-level Server, annotations, structured output, lifecycle."""
 
 import logging
-from typing import Any, Dict, List
+from typing import Any
 
 from mcp.server import Server
 from mcp.types import Tool, ToolAnnotations
@@ -107,7 +107,7 @@ def build_mcp_server(ctx: Context) -> Server:
     server = Server("ews-mcp-v5")
 
     @server.list_tools()
-    async def list_tools() -> List[Tool]:
+    async def list_tools() -> list[Tool]:
         tools = []
         for spec in ctx.registry.values():
             schema = spec.public_schema()
@@ -120,7 +120,7 @@ def build_mcp_server(ctx: Context) -> Server:
         return tools
 
     @server.call_tool()
-    async def call_tool(name: str, arguments: Dict[str, Any]):
+    async def call_tool(name: str, arguments: dict[str, Any]):
         spec = ctx.registry.get(name)
         if spec is None:
             return {"ok": False, "error": {

@@ -13,8 +13,9 @@ import fnmatch
 import threading
 import time
 from collections import deque
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import Any, Awaitable, Callable, Dict, List, Optional, Union
+from typing import Any
 
 from ..confirm import consume_token, content_hash, make_token, verify_token
 from ..errors import ToolError, map_exception
@@ -50,11 +51,11 @@ class ToolSpec:
     name: str
     description: str
     side_effect_class: str  # read | write | send | destructive
-    input_schema: Dict[str, Any]
-    handler: Callable[..., Awaitable[Dict[str, Any]]]  # handler(ctx, **kwargs)
+    input_schema: dict[str, Any]
+    handler: Callable[..., Awaitable[dict[str, Any]]]  # handler(ctx, **kwargs)
     requires_ews: bool = True
-    confirm: Union[bool, Callable[[Dict[str, Any]], bool]] = False
-    output_schema: Optional[Dict[str, Any]] = None
+    confirm: bool | Callable[[dict[str, Any]], bool] = False
+    output_schema: dict[str, Any] | None = None
     # Optional async hook ``preview(ctx, kwargs) -> content dict`` that
     # resolves the REAL content the confirm token must bind (e.g. fetch the
     # draft and return its subject/recipients/body_text). When present the
@@ -63,12 +64,12 @@ class ToolSpec:
     # (TOCTOU defense), and the resolved recipients pass the recipient
     # guard. Reserved key "body_text" is hashed in full but previewed as a
     # snippet.
-    preview: Optional[Callable[[Any, Dict[str, Any]], Awaitable[Dict[str, Any]]]] = None
+    preview: Callable[[Any, dict[str, Any]], Awaitable[dict[str, Any]]] | None = None
 
-    def confirm_needed(self, kwargs: Dict[str, Any]) -> bool:
+    def confirm_needed(self, kwargs: dict[str, Any]) -> bool:
         return self.confirm(kwargs) if callable(self.confirm) else bool(self.confirm)
 
-    def public_schema(self) -> Dict[str, Any]:
+    def public_schema(self) -> dict[str, Any]:
         schema = {
             "name": self.name,
             "description": self.description,
@@ -90,9 +91,9 @@ class Context:
     cache: Any = None  # CacheStore | None (None = cache disabled/broken)
     sync: Any = None  # SyncEngine | None
     semantic: Any = None  # SemanticIndex adapter | None
-    registry: Dict[str, ToolSpec] = field(default_factory=dict)
+    registry: dict[str, ToolSpec] = field(default_factory=dict)
     started_at: float = field(default_factory=time.time)
-    counters: Dict[str, int] = field(default_factory=dict)
+    counters: dict[str, int] = field(default_factory=dict)
     _circuit_failures: int = 0
     _circuit_open_until: float = 0.0
 
@@ -100,12 +101,12 @@ class Context:
         self.counters[key] = self.counters.get(key, 0) + 1
 
 
-def _split(raw: str) -> List[str]:
+def _split(raw: str) -> list[str]:
     return [p.strip().lower() for p in (raw or "").split(",") if p.strip()]
 
 
-def _recipients(kwargs: Dict[str, Any]) -> List[str]:
-    out: List[str] = []
+def _recipients(kwargs: dict[str, Any]) -> list[str]:
+    out: list[str] = []
     for key in RECIPIENT_KEYS:
         value = kwargs.get(key)
         if isinstance(value, str):
@@ -115,7 +116,7 @@ def _recipients(kwargs: Dict[str, Any]) -> List[str]:
     return out
 
 
-def _recipient_guard(ctx: Context, kwargs: Dict[str, Any]) -> None:
+def _recipient_guard(ctx: Context, kwargs: dict[str, Any]) -> None:
     deny = _split(ctx.settings.ews_recipient_denylist)
     allow = _split(ctx.settings.ews_recipient_allowlist)
     if not deny and not allow:
@@ -145,7 +146,7 @@ def _rate_guard(ctx: Context) -> None:
         _SEND_TIMES.append(now)
 
 
-def _external_recipients(ctx: Context, source: Dict[str, Any]) -> List[str]:
+def _external_recipients(ctx: Context, source: dict[str, Any]) -> list[str]:
     own = ctx.settings.ews_email.rsplit("@", 1)[-1].lower()
     return sorted({
         r for r in _recipients(source) if r.rsplit("@", 1)[-1] != own
@@ -162,8 +163,8 @@ _CONFIRM_HINTS = {
 }
 
 
-async def _confirm_gate(ctx: Context, spec: ToolSpec, kwargs: Dict[str, Any],
-                        token: Optional[str]) -> Optional[Dict[str, Any]]:
+async def _confirm_gate(ctx: Context, spec: ToolSpec, kwargs: dict[str, Any],
+                        token: str | None) -> dict[str, Any] | None:
     """Returns the phase-1 response, or None when execution may proceed.
 
     With ``spec.preview`` the token binds the RESOLVED content (refetched and
@@ -172,7 +173,7 @@ async def _confirm_gate(ctx: Context, spec: ToolSpec, kwargs: Dict[str, Any],
     hashed. Verified tokens are single-use.
     """
     secret = ctx.settings.send_confirm_secret
-    content: Optional[Dict[str, Any]] = None
+    content: dict[str, Any] | None = None
     if spec.preview is not None:
         content = await spec.preview(ctx, dict(kwargs))
         _recipient_guard(ctx, content)  # the draft's REAL recipients
@@ -205,7 +206,7 @@ async def _confirm_gate(ctx: Context, spec: ToolSpec, kwargs: Dict[str, Any],
                 for k, v in kwargs.items()
             }
         external = _external_recipients(ctx, content if content is not None else kwargs)
-        response: Dict[str, Any] = {
+        response: dict[str, Any] = {
             "ok": True,
             "requires_confirmation": True,
             "message": (f"{spec.name} previewed — NOTHING executed. Call again "
@@ -233,7 +234,7 @@ async def _confirm_gate(ctx: Context, spec: ToolSpec, kwargs: Dict[str, Any],
     return None
 
 
-async def mint_token(ctx: Context, spec: ToolSpec, kwargs: Dict[str, Any]) -> str:
+async def mint_token(ctx: Context, spec: ToolSpec, kwargs: dict[str, Any]) -> str:
     """Server-side pre-confirmation (e.g. a human-approved queue item).
 
     Mirrors ``_confirm_gate``'s binding exactly: preview-hook specs get a
@@ -262,7 +263,7 @@ async def mint_token(ctx: Context, spec: ToolSpec, kwargs: Dict[str, Any]) -> st
     )["confirm_token"]
 
 
-def _resolve_ids(ctx: Context, kwargs: Dict[str, Any]) -> Dict[str, Any]:
+def _resolve_ids(ctx: Context, kwargs: dict[str, Any]) -> dict[str, Any]:
     out = dict(kwargs)
     try:
         for key, value in kwargs.items():
@@ -276,8 +277,8 @@ def _resolve_ids(ctx: Context, kwargs: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
-async def dispatch(ctx: Context, spec: ToolSpec, kwargs: Dict[str, Any],
-                   transport: str = "-") -> Dict[str, Any]:
+async def dispatch(ctx: Context, spec: ToolSpec, kwargs: dict[str, Any],
+                   transport: str = "-") -> dict[str, Any]:
     start = time.time()
     outcome = "ok"
     # confirm_token is dispatcher vocabulary, never a handler argument —

@@ -19,7 +19,7 @@ from __future__ import annotations
 import json
 import logging
 import urllib.request
-from typing import Any, Dict, List, Optional, Protocol, Tuple
+from typing import Any, Protocol
 
 try:  # optional dependency — module-top guard (fails loud, degrades soft)
     import psycopg
@@ -34,28 +34,28 @@ RRF_K = 60  # standard reciprocal-rank-fusion constant
 
 
 class SemanticIndex(Protocol):
-    def add(self, items: List[Dict[str, str]]) -> None: ...
+    def add(self, items: list[dict[str, str]]) -> None: ...
 
-    def delete(self, ews_ids: List[str]) -> None: ...
+    def delete(self, ews_ids: list[str]) -> None: ...
 
-    def query(self, text: str, top_k: int = 20) -> List[Tuple[str, float]]: ...
+    def query(self, text: str, top_k: int = 20) -> list[tuple[str, float]]: ...
 
     def query_similar(self, ews_id: str,
-                      top_k: int = 5) -> List[Tuple[str, float]]: ...
+                      top_k: int = 5) -> list[tuple[str, float]]: ...
 
-    def health(self) -> Dict[str, Any]: ...
+    def health(self) -> dict[str, Any]: ...
 
 
-def rrf_merge(*rankings: List[str], k: int = RRF_K) -> List[str]:
+def rrf_merge(*rankings: list[str], k: int = RRF_K) -> list[str]:
     """Reciprocal-rank fusion over id rankings (best first)."""
-    scores: Dict[str, float] = {}
+    scores: dict[str, float] = {}
     for ranking in rankings:
         for rank, ews_id in enumerate(ranking):
             scores[ews_id] = scores.get(ews_id, 0.0) + 1.0 / (k + rank + 1)
     return sorted(scores, key=scores.get, reverse=True)
 
 
-def chunk_text(text: str, size: int = CHUNK_CHARS) -> List[str]:
+def chunk_text(text: str, size: int = CHUNK_CHARS) -> list[str]:
     text = (text or "").strip()
     if not text:
         return []
@@ -97,7 +97,7 @@ class PgVectorSemanticIndex:
                 """
             )
 
-    def _embed(self, texts: List[str]) -> List[List[float]]:
+    def _embed(self, texts: list[str]) -> list[list[float]]:
         payload = json.dumps({"model": self.model, "input": texts}).encode()
         req = urllib.request.Request(
             f"{self.ollama_url}/api/embed", data=payload,
@@ -109,7 +109,7 @@ class PgVectorSemanticIndex:
 
     # ------------------------------------------------------------- protocol
 
-    def health(self) -> Dict[str, Any]:
+    def health(self) -> dict[str, Any]:
         try:
             with self._conn() as conn:
                 n = conn.execute(
@@ -120,7 +120,7 @@ class PgVectorSemanticIndex:
         except Exception as exc:
             return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
 
-    def add(self, items: List[Dict[str, str]]) -> None:
+    def add(self, items: list[dict[str, str]]) -> None:
         for item in items:
             chunks = chunk_text(item.get("text", ""))
             if not chunks:
@@ -138,7 +138,7 @@ class PgVectorSemanticIndex:
                         (item["ews_id"], i, vec),
                     )
 
-    def delete(self, ews_ids: List[str]) -> None:
+    def delete(self, ews_ids: list[str]) -> None:
         if not ews_ids:
             return
         with self._conn() as conn:
@@ -147,7 +147,7 @@ class PgVectorSemanticIndex:
                 (ews_ids,),
             )
 
-    def query(self, text: str, top_k: int = 20) -> List[Tuple[str, float]]:
+    def query(self, text: str, top_k: int = 20) -> list[tuple[str, float]]:
         vec = self._embed([text])[0]
         with self._conn() as conn:
             rows = conn.execute(
@@ -159,7 +159,7 @@ class PgVectorSemanticIndex:
         return [(r[0], 1.0 - float(r[1])) for r in rows]
 
     def query_similar(self, ews_id: str,
-                      top_k: int = 5) -> List[Tuple[str, float]]:
+                      top_k: int = 5) -> list[tuple[str, float]]:
         with self._conn() as conn:
             rows = conn.execute(
                 """
@@ -174,7 +174,7 @@ class PgVectorSemanticIndex:
         return [(r[0], 1.0 - float(r[1])) for r in rows]
 
 
-def build_semantic_index(settings: Any) -> Optional[SemanticIndex]:
+def build_semantic_index(settings: Any) -> SemanticIndex | None:
     """None for the default core; a pgvector adapter when configured.
     Construction failure logs and returns None — the server never gates
     on the optional tier."""

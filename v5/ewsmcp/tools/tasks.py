@@ -8,7 +8,7 @@ deterministic mirror query "which sent threads never got a reply".
 
 import asyncio
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from ..dates import parse_when
 from ..dto import envelope
@@ -21,8 +21,8 @@ _TASK_PROJECTION = ("id", "changekey", "subject", "due_date", "is_complete",
                     "status")
 
 
-def _task_row_dto(ctx: Context, row: Any) -> Dict[str, Any]:
-    out: Dict[str, Any] = {
+def _task_row_dto(ctx: Context, row: Any) -> dict[str, Any]:
+    out: dict[str, Any] = {
         "id": ctx.aliaser.alias_for(row["ews_id"], "k"),
         "subject": row["subject"] or "",
         "complete": bool(row["is_complete"]),
@@ -34,10 +34,10 @@ def _task_row_dto(ctx: Context, row: Any) -> Dict[str, Any]:
     return out
 
 
-def _task_item_dto(ctx: Context, item: Any, tz: str) -> Dict[str, Any]:
+def _task_item_dto(ctx: Context, item: Any, tz: str) -> dict[str, Any]:
     from ..dto import fmt_dt
     due = getattr(item, "due_date", None)
-    out: Dict[str, Any] = {
+    out: dict[str, Any] = {
         "id": ctx.aliaser.alias_for(str(item.id), "k"),
         "subject": getattr(item, "subject", "") or "",
         "complete": bool(getattr(item, "is_complete", False)),
@@ -53,7 +53,7 @@ def _task_item_dto(ctx: Context, item: Any, tz: str) -> Dict[str, Any]:
 
 async def _list_tasks(ctx: Context, include_completed: bool = False,
                       offset: int = 0, limit: int = 25,
-                      fresh: bool = False) -> Dict[str, Any]:
+                      fresh: bool = False) -> dict[str, Any]:
     offset = max(0, int(offset))
     limit = max(1, min(int(limit), 100))
     if not fresh and ctx.cache is not None and ctx.cache.watermark("item:tasks"):
@@ -69,7 +69,7 @@ async def _list_tasks(ctx: Context, include_completed: bool = False,
 
     tz = ctx.settings.ews_tz
 
-    def work(account: Any) -> List[Any]:
+    def work(account: Any) -> list[Any]:
         qs = account.tasks.all()
         try:
             qs = qs.only(*_TASK_PROJECTION)
@@ -90,15 +90,15 @@ async def _list_tasks(ctx: Context, include_completed: bool = False,
     return out
 
 
-async def _update_task(ctx: Context, id: str, complete: Optional[bool] = None,
-                       due: Optional[str] = None) -> Dict[str, Any]:
+async def _update_task(ctx: Context, id: str, complete: bool | None = None,
+                       due: str | None = None) -> dict[str, Any]:
     # DATA-plane only by design: completion + due date. Renaming,
     # prioritizing and planning live in skills, not here.
     if complete is None and due is None:
         raise ToolError("validation", "pass complete=true and/or due=<date>")
     due_dt = parse_when(due, "due", ctx.settings.ews_tz) if due else None
 
-    def work(account: Any) -> Dict[str, Any]:
+    def work(account: Any) -> dict[str, Any]:
         fetched = list(account.fetch(ids=[(id, None)]))
         if not fetched:
             raise ToolError("not_found", "task not found — the id may be stale",
@@ -106,7 +106,7 @@ async def _update_task(ctx: Context, id: str, complete: Optional[bool] = None,
         item = fetched[0]
         if isinstance(item, Exception):
             raise item
-        changed: List[str] = []
+        changed: list[str] = []
         if due_dt is not None:
             item.due_date = due_dt.date()
             changed.append("due_date")
@@ -148,7 +148,7 @@ async def _update_task(ctx: Context, id: str, complete: Optional[bool] = None,
 
 
 async def _waiting_on(ctx: Context, days: int = 5,
-                      limit: int = 25) -> Dict[str, Any]:
+                      limit: int = 25) -> dict[str, Any]:
     days = max(1, min(int(days), 90))
     limit = max(1, min(int(limit), 50))
     if ctx.cache is None or not ctx.cache.watermark("item:sent"):
@@ -160,7 +160,7 @@ async def _waiting_on(ctx: Context, days: int = 5,
         )
     rows = await asyncio.to_thread(ctx.cache.sent_without_reply, days, limit)
 
-    def build(r: Any) -> Dict[str, Any]:
+    def build(r: Any) -> dict[str, Any]:
         import json as _json
         try:
             to = _json.loads(r["to_json"] or "[]")
@@ -185,7 +185,7 @@ async def _waiting_on(ctx: Context, days: int = 5,
     return out
 
 
-TOOLS: List[ToolSpec] = [
+TOOLS: list[ToolSpec] = [
     ToolSpec(
         name="list_tasks",
         description=(

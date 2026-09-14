@@ -13,7 +13,6 @@ from unittest.mock import MagicMock
 from zoneinfo import ZoneInfo
 
 import pytest
-
 from conftest import make_settings
 
 from ewsmcp.audit import AuditLog

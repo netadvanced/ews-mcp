@@ -34,7 +34,7 @@ import html as _html
 import logging
 import threading
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from exchangelib import CalendarItem, HTMLBody, Message, OofSettings
 from exchangelib.items import (
@@ -76,7 +76,7 @@ _OOF_STATE = {
 # --- send_draft idempotency (DESIGN.md §Safety, Stripe semantics) ---------------
 # Bounded: entries expire after 48h and the store caps at 512 keys (oldest
 # evicted first) so a long-lived process can't grow it without limit.
-_IDEMPOTENT_SENDS: Dict[str, Dict[str, Any]] = {}
+_IDEMPOTENT_SENDS: dict[str, dict[str, Any]] = {}
 _IDEMPOTENT_LOCK = threading.Lock()
 _IDEMPOTENCY_TTL_S = 48 * 3600
 _IDEMPOTENCY_MAX = 512
@@ -88,7 +88,7 @@ def reset_idempotency_store() -> None:
         _IDEMPOTENT_SENDS.clear()
 
 
-def _idempotency_get(key: str) -> Optional[Dict[str, Any]]:
+def _idempotency_get(key: str) -> dict[str, Any] | None:
     now = time.time()
     with _IDEMPOTENT_LOCK:
         for stale in [k for k, v in _IDEMPOTENT_SENDS.items()
@@ -97,7 +97,7 @@ def _idempotency_get(key: str) -> Optional[Dict[str, Any]]:
         return _IDEMPOTENT_SENDS.get(key)
 
 
-def _idempotency_put(key: str, record: Dict[str, Any]) -> None:
+def _idempotency_put(key: str, record: dict[str, Any]) -> None:
     with _IDEMPOTENT_LOCK:
         while len(_IDEMPOTENT_SENDS) >= _IDEMPOTENCY_MAX:
             oldest = min(_IDEMPOTENT_SENDS, key=lambda k: _IDEMPOTENT_SENDS[k].get("ts", 0))
@@ -117,8 +117,8 @@ def _wrap_html(text: str) -> HTMLBody:
     return HTMLBody(f"<html><body>{rendered}</body></html>")
 
 
-def _email_list(recipients: Any) -> List[str]:
-    out: List[str] = []
+def _email_list(recipients: Any) -> list[str]:
+    out: list[str] = []
     for r in recipients or []:
         addr = getattr(r, "email_address", None)
         out.append(addr if isinstance(addr, str) else str(r))
@@ -145,15 +145,15 @@ def _fetch_one(account: Any, raw_id: str) -> Any:
     return item
 
 
-def _fetch_many(account: Any, raw_ids: List[str],
-                only: Optional[List[str]] = None) -> List[Any]:
+def _fetch_many(account: Any, raw_ids: list[str],
+                only: list[str] | None = None) -> list[Any]:
     """Bulk fetch with a projection: without only_fields, exchangelib pulls
     the FULL item — including base64 MIME — so a 'mark 50 read' on messages
     with attachments used to move megabytes to flip one boolean each."""
     return list(account.fetch([(i, None) for i in raw_ids], only_fields=only))
 
 
-def _require_bulk(ids: List[str]) -> None:
+def _require_bulk(ids: list[str]) -> None:
     if not ids:
         raise ToolError("validation", "ids must contain at least one id")
     if len(ids) > MAX_BULK_IDS:
@@ -161,7 +161,7 @@ def _require_bulk(ids: List[str]) -> None:
                         f"at most {MAX_BULK_IDS} ids per call (got {len(ids)})")
 
 
-def _item_folder_id(item: Any) -> Optional[str]:
+def _item_folder_id(item: Any) -> str | None:
     parent = getattr(item, "parent_folder_id", None)
     if parent is not None and getattr(parent, "id", None):
         return parent.id
@@ -180,13 +180,13 @@ def _require_in_drafts(item: Any, account: Any, tool: str) -> None:
         )
 
 
-def _failed_entry(ctx: Context, raw_id: str, exc: Exception) -> Dict[str, str]:
+def _failed_entry(ctx: Context, raw_id: str, exc: Exception) -> dict[str, str]:
     return {"id": ctx.aliaser.alias_for(raw_id, "m"),
             "error": f"{type(exc).__name__}: {exc}"}
 
 
-def _draft_preview(to: List[str], cc: List[str], subject: str,
-                   body: Optional[str]) -> Dict[str, Any]:
+def _draft_preview(to: list[str], cc: list[str], subject: str,
+                   body: str | None) -> dict[str, Any]:
     return {"to": to, "cc": cc, "subject": subject,
             "body_snippet": (body or "")[:200]}
 
@@ -195,12 +195,12 @@ def _draft_preview(to: List[str], cc: List[str], subject: str,
 
 
 async def _create_draft(ctx: Context, *, body: str, mode: str = "new",
-                        reply_to: Optional[str] = None,
-                        to: Optional[List[str]] = None,
-                        cc: Optional[List[str]] = None,
-                        bcc: Optional[List[str]] = None,
-                        subject: Optional[str] = None,
-                        importance: Optional[str] = None) -> Dict[str, Any]:
+                        reply_to: str | None = None,
+                        to: list[str] | None = None,
+                        cc: list[str] | None = None,
+                        bcc: list[str] | None = None,
+                        subject: str | None = None,
+                        importance: str | None = None) -> dict[str, Any]:
     if mode not in _DRAFT_MODES:
         raise ToolError("validation", f"mode must be one of {_DRAFT_MODES}, got {mode!r}")
     if mode != "new" and not reply_to:
@@ -225,7 +225,7 @@ async def _create_draft(ctx: Context, *, body: str, mode: str = "new",
             msg.save()  # SAVE_ONLY into Drafts — nothing leaves the mailbox
             return msg.id, getattr(msg, "changekey", None), list(to), list(cc or []), subject or ""
         original = _fetch_one(account, reply_to)
-        extra: Dict[str, Any] = {}
+        extra: dict[str, Any] = {}
         if mode == "reply":
             final_subject = subject or _prefixed("Re: ", getattr(original, "subject", None))
             if to:
@@ -263,17 +263,17 @@ async def _create_draft(ctx: Context, *, body: str, mode: str = "new",
 
 
 async def _update_draft(ctx: Context, *, draft_id: str,
-                        to: Optional[List[str]] = None,
-                        cc: Optional[List[str]] = None,
-                        bcc: Optional[List[str]] = None,
-                        subject: Optional[str] = None,
-                        body: Optional[str] = None) -> Dict[str, Any]:
+                        to: list[str] | None = None,
+                        cc: list[str] | None = None,
+                        bcc: list[str] | None = None,
+                        subject: str | None = None,
+                        body: str | None = None) -> dict[str, Any]:
     if to is None and cc is None and bcc is None and subject is None and body is None:
         raise ToolError("validation", "nothing to update: pass to/cc/bcc/subject/body")
 
-    def work(account: Any) -> Dict[str, Any]:
+    def work(account: Any) -> dict[str, Any]:
         msg = _fetch_one(account, draft_id)
-        changed: List[str] = []  # update_fields uses exchangelib field names
+        changed: list[str] = []  # update_fields uses exchangelib field names
         for value, field in ((to, "to_recipients"), (cc, "cc_recipients"),
                              (bcc, "bcc_recipients")):
             if value is not None:
@@ -299,8 +299,8 @@ async def _update_draft(ctx: Context, *, draft_id: str,
             "preview": preview}
 
 
-async def _delete_draft(ctx: Context, *, draft_id: str) -> Dict[str, Any]:
-    def work(account: Any) -> Dict[str, Any]:
+async def _delete_draft(ctx: Context, *, draft_id: str) -> dict[str, Any]:
+    def work(account: Any) -> dict[str, Any]:
         msg = _fetch_one(account, draft_id)
         _require_in_drafts(msg, account, "delete_draft")
         msg.move_to_trash()  # reversible — hence write class, no confirm
@@ -309,10 +309,10 @@ async def _delete_draft(ctx: Context, *, draft_id: str) -> Dict[str, Any]:
     return await ctx.gateway.call(work)
 
 
-async def _update_messages(ctx: Context, *, ids: List[str],
-                           set_read: Optional[bool] = None,
-                           categories_add: Optional[List[str]] = None,
-                           categories_remove: Optional[List[str]] = None) -> Dict[str, Any]:
+async def _update_messages(ctx: Context, *, ids: list[str],
+                           set_read: bool | None = None,
+                           categories_add: list[str] | None = None,
+                           categories_remove: list[str] | None = None) -> dict[str, Any]:
     # NOTE: there is deliberately NO set_flag parameter — exchangelib 5.0.3
     # exposes no first-class follow-up flag field, and pretending would be
     # mock-drift bait. Categories are the visible marker (see description).
@@ -321,10 +321,10 @@ async def _update_messages(ctx: Context, *, ids: List[str],
         raise ToolError("validation",
                         "nothing to update: pass set_read and/or categories_add/_remove")
     remove = set(categories_remove or [])
-    ok_ids: List[str] = []
-    final_cats: List[tuple] = []
+    ok_ids: list[str] = []
+    final_cats: list[tuple] = []
 
-    def work(account: Any) -> Dict[str, Any]:
+    def work(account: Any) -> dict[str, Any]:
         updated, failed = 0, []
         fetched = _fetch_many(account, ids,
                               only=["id", "changekey", "is_read", "categories"])
@@ -332,7 +332,7 @@ async def _update_messages(ctx: Context, *, ids: List[str],
             try:  # per-item isolation: one failure never aborts the batch
                 if isinstance(item, Exception):
                     raise item
-                changed: List[str] = []
+                changed: list[str] = []
                 if set_read is not None:
                     item.is_read = bool(set_read)
                     changed.append("is_read")
@@ -359,13 +359,13 @@ async def _update_messages(ctx: Context, *, ids: List[str],
     return result
 
 
-async def _move_messages(ctx: Context, *, ids: List[str],
-                         to_folder: str) -> Dict[str, Any]:
+async def _move_messages(ctx: Context, *, ids: list[str],
+                         to_folder: str) -> dict[str, Any]:
     _require_bulk(ids)
 
-    moved_old_ids: List[str] = []
+    moved_old_ids: list[str] = []
 
-    def work(account: Any) -> Dict[str, Any]:
+    def work(account: Any) -> dict[str, Any]:
         folder = ctx.gateway.resolve_folder(account, to_folder, ctx.aliaser)
         moved, failed = [], []
         fetched = _fetch_many(account, ids, only=["id", "changekey"])
@@ -384,7 +384,7 @@ async def _move_messages(ctx: Context, *, ids: List[str],
                     alias = ctx.aliaser.rebind(raw_id, new_raw)
                 if alias is None:
                     alias = ctx.aliaser.alias_for(new_raw or raw_id, "m")
-                row: Dict[str, Any] = {"id": alias}
+                row: dict[str, Any] = {"id": alias}
                 if new_raw is None:
                     row["note"] = ("moved, but Exchange returned no new id — "
                                    "re-search before reusing this id")
@@ -403,10 +403,10 @@ async def _move_messages(ctx: Context, *, ids: List[str],
 
 
 async def _create_event(ctx: Context, *, subject: str, start: str, end: str,
-                        attendees: Optional[List[str]] = None,
-                        location: Optional[str] = None,
-                        body: Optional[str] = None,
-                        send_invitations: bool = False) -> Dict[str, Any]:
+                        attendees: list[str] | None = None,
+                        location: str | None = None,
+                        body: str | None = None,
+                        send_invitations: bool = False) -> dict[str, Any]:
     # The ONE handler-side safety check in this pack, by design: this tool is
     # class "write" so a no-invite event stays available at draft tier, but
     # the dispatcher kill-switch only covers class "send". Invitations leave
@@ -445,12 +445,12 @@ async def _create_event(ctx: Context, *, subject: str, start: str, end: str,
 
 
 async def _update_event(ctx: Context, *, event_id: str,
-                        subject: Optional[str] = None,
-                        start: Optional[str] = None,
-                        end: Optional[str] = None,
-                        location: Optional[str] = None,
-                        body: Optional[str] = None,
-                        notify_attendees: bool = False) -> Dict[str, Any]:
+                        subject: str | None = None,
+                        start: str | None = None,
+                        end: str | None = None,
+                        location: str | None = None,
+                        body: str | None = None,
+                        notify_attendees: bool = False) -> dict[str, Any]:
     # Same documented exception as create_event: write-class for tier, but
     # notifications leave the org → the send kill-switch applies.
     if notify_attendees and not ctx.settings.send_enabled:
@@ -466,9 +466,9 @@ async def _update_event(ctx: Context, *, event_id: str,
     start_dt = parse_when(start, "start", ctx.settings.ews_tz) if start else None
     end_dt = parse_when(end, "end", ctx.settings.ews_tz) if end else None
 
-    def work(account: Any) -> Dict[str, Any]:
+    def work(account: Any) -> dict[str, Any]:
         item = _fetch_one(account, event_id)
-        changed: List[str] = []
+        changed: list[str] = []
         for value, field in ((subject, "subject"), (start_dt, "start"),
                              (end_dt, "end"), (location, "location")):
             if value is not None:
@@ -488,7 +488,7 @@ async def _update_event(ctx: Context, *, event_id: str,
 # --- SEND class (leaves the mailbox; tier full, two-phase, kill-switch) ------
 
 
-def _draft_content(msg: Any) -> Dict[str, Any]:
+def _draft_content(msg: Any) -> dict[str, Any]:
     """The draft fields the confirm token binds and the preview shows.
 
     Recipients are sorted so reordering doesn't invalidate a token, but
@@ -509,7 +509,7 @@ def _draft_content(msg: Any) -> Dict[str, Any]:
     }
 
 
-async def _send_draft_preview(ctx: Context, kwargs: Dict[str, Any]) -> Dict[str, Any]:
+async def _send_draft_preview(ctx: Context, kwargs: dict[str, Any]) -> dict[str, Any]:
     """Confirm-gate hook: fetch the draft's CURRENT content (both phases).
 
     Phase 1 hashes it into the token and shows it as the preview; phase 2
@@ -524,7 +524,7 @@ async def _send_draft_preview(ctx: Context, kwargs: Dict[str, Any]) -> Dict[str,
     except KeyError as e:
         raise ToolError("validation", str(e.args[0] if e.args else e))
 
-    def work(account: Any) -> Dict[str, Any]:
+    def work(account: Any) -> dict[str, Any]:
         msg = _fetch_one(account, raw_id)
         _require_in_drafts(msg, account, "send_draft")
         return _draft_content(msg)
@@ -534,7 +534,7 @@ async def _send_draft_preview(ctx: Context, kwargs: Dict[str, Any]) -> Dict[str,
     return content
 
 
-def _send_confirm_needed(kwargs: Dict[str, Any]) -> bool:
+def _send_confirm_needed(kwargs: dict[str, Any]) -> bool:
     """Skip the confirm gate on an idempotent REPLAY (v3.5 semantics).
 
     A retry with the same idempotency_key + draft_id returns the cached
@@ -552,7 +552,7 @@ def _send_confirm_needed(kwargs: Dict[str, Any]) -> bool:
 
 
 async def _send_draft(ctx: Context, *, draft_id: str,
-                      idempotency_key: Optional[str] = None) -> Dict[str, Any]:
+                      idempotency_key: str | None = None) -> dict[str, Any]:
     if idempotency_key:
         prior = _idempotency_get(idempotency_key)
         if prior is not None:
@@ -564,7 +564,7 @@ async def _send_draft(ctx: Context, *, draft_id: str,
                 )
             return {**prior["result"], "replayed": True}
 
-    def work(account: Any) -> Dict[str, Any]:
+    def work(account: Any) -> dict[str, Any]:
         msg = _fetch_one(account, draft_id)
         _require_in_drafts(msg, account, "send_draft")
         # Draft with an id → SendItem; Exchange moves it from Drafts to Sent.
@@ -582,13 +582,13 @@ async def _send_draft(ctx: Context, *, draft_id: str,
 
 
 async def _respond_to_event(ctx: Context, *, event_id: str, response: str,
-                            message: Optional[str] = None) -> Dict[str, Any]:
+                            message: str | None = None) -> dict[str, Any]:
     method = _RESPONSE_METHOD.get(response)
     if method is None:
         raise ToolError("validation",
                         f"response must be one of {sorted(_RESPONSE_METHOD)}, got {response!r}")
 
-    def work(account: Any) -> Dict[str, Any]:
+    def work(account: Any) -> dict[str, Any]:
         item = _fetch_one(account, event_id)
         kwargs = {"body": message} if message else {}
         # 5.0.3: accept()/tentatively_accept()/decline() build the meeting
@@ -600,10 +600,10 @@ async def _respond_to_event(ctx: Context, *, event_id: str, response: str,
 
 
 async def _set_oof(ctx: Context, *, state: str,
-                   internal_reply: Optional[str] = None,
-                   external_reply: Optional[str] = None,
-                   start: Optional[str] = None,
-                   end: Optional[str] = None) -> Dict[str, Any]:
+                   internal_reply: str | None = None,
+                   external_reply: str | None = None,
+                   start: str | None = None,
+                   end: str | None = None) -> dict[str, Any]:
     target_state = _OOF_STATE.get(state)
     if target_state is None:
         raise ToolError("validation",
@@ -615,8 +615,8 @@ async def _set_oof(ctx: Context, *, state: str,
     start_dt = parse_when(start, "start", ctx.settings.ews_tz) if start else None
     end_dt = parse_when(end, "end", ctx.settings.ews_tz) if end else None
 
-    def work(account: Any) -> Dict[str, Any]:
-        kwargs: Dict[str, Any] = {"state": target_state}
+    def work(account: Any) -> dict[str, Any]:
+        kwargs: dict[str, Any] = {"state": target_state}
         if internal_reply is not None:
             # 5.0.3: plain strings — the OofReply wrapper class is gone.
             kwargs["internal_reply"] = internal_reply
@@ -636,8 +636,8 @@ async def _set_oof(ctx: Context, *, state: str,
 
 
 async def _cancel_event(ctx: Context, *, event_id: str,
-                        message: Optional[str] = None) -> Dict[str, Any]:
-    def work(account: Any) -> Dict[str, Any]:
+                        message: str | None = None) -> dict[str, Any]:
+    def work(account: Any) -> dict[str, Any]:
         item = _fetch_one(account, event_id)
         kwargs = {"new_body": message} if message else {}
         # 5.0.3 CalendarItem.cancel() exists (CancelCalendarItem service);
@@ -648,16 +648,16 @@ async def _cancel_event(ctx: Context, *, event_id: str,
     return await ctx.gateway.call(work)
 
 
-async def _delete_messages(ctx: Context, *, ids: List[str],
-                           disposition: str = "trash") -> Dict[str, Any]:
+async def _delete_messages(ctx: Context, *, ids: list[str],
+                           disposition: str = "trash") -> dict[str, Any]:
     if disposition not in ("trash", "soft", "permanent"):
         raise ToolError("validation",
                         "disposition must be 'trash', 'soft' or 'permanent'")
     _require_bulk(ids)
 
-    deleted_ids: List[str] = []
+    deleted_ids: list[str] = []
 
-    def work(account: Any) -> Dict[str, Any]:
+    def work(account: Any) -> dict[str, Any]:
         deleted, failed = 0, []
         fetched = _fetch_many(account, ids, only=["id", "changekey"])
         for raw_id, item in zip(ids, fetched):
@@ -685,7 +685,7 @@ async def _delete_messages(ctx: Context, *, ids: List[str],
 # --- schemas ------------------------------------------------------------------
 
 
-def _obj(props: Dict[str, Any], required: Optional[List[str]] = None) -> Dict[str, Any]:
+def _obj(props: dict[str, Any], required: list[str] | None = None) -> dict[str, Any]:
     return {"type": "object", "properties": props,
             "required": required or [], "additionalProperties": False}
 
@@ -699,7 +699,7 @@ _IDS = {"type": "array", "items": {"type": "string"},
 
 # --- the pack -----------------------------------------------------------------
 
-TOOLS: List[ToolSpec] = [
+TOOLS: list[ToolSpec] = [
     ToolSpec(
         name="create_draft",
         description=(

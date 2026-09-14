@@ -7,12 +7,14 @@ account synchronously. All datetimes are tz-aware Asia/Riyadh.
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, time as dtime, timedelta
+from datetime import datetime, timedelta
+from datetime import time as dtime
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 from zoneinfo import ZoneInfo
 
 from conftest import make_settings
+
 from ewsmcp import __version__
 from ewsmcp.audit import AuditLog
 from ewsmcp.ids import get_aliaser

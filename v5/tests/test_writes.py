@@ -13,15 +13,15 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime
 from types import SimpleNamespace
-from typing import Any, Dict
+from typing import Any
 from unittest.mock import MagicMock
 from zoneinfo import ZoneInfo
 
 import pytest
+from conftest import make_settings
 from exchangelib import OofSettings
 from exchangelib.items import SEND_TO_ALL_AND_SAVE_COPY, SEND_TO_NONE
 
-from conftest import make_settings
 from ewsmcp.audit import AuditLog
 from ewsmcp.ids import get_aliaser
 from ewsmcp.tools import writes
@@ -44,7 +44,7 @@ class FakeGateway:
 
     def __init__(self, account):
         self.account = account
-        self.folders: Dict[str, Any] = {}
+        self.folders: dict[str, Any] = {}
 
     async def call(self, fn):
         return fn(self.account)
@@ -76,7 +76,7 @@ def make_ctx(tmp_path, account, **overrides) -> Context:
     )
 
 
-def call(ctx: Context, name: str, kwargs: Dict[str, Any]) -> Dict[str, Any]:
+def call(ctx: Context, name: str, kwargs: dict[str, Any]) -> dict[str, Any]:
     return asyncio.run(dispatch(ctx, SPEC[name], dict(kwargs)))
 
 

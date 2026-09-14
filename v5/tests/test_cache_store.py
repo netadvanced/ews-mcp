@@ -133,9 +133,8 @@ def test_unread_page_and_watermarks(store):
 
 def test_reads_are_read_only_connections(store, tmp_path):
     store.upsert_messages([make_row("M1")])
-    with store._read() as conn:
-        with pytest.raises(sqlite3.OperationalError):
-            conn.execute("DELETE FROM messages")
+    with store._read() as conn, pytest.raises(sqlite3.OperationalError):
+        conn.execute("DELETE FROM messages")
 
 
 def test_stats_and_purge(store):
