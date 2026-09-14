@@ -7,10 +7,16 @@ ConnectionManager treats connecting as a state, not a failure.
 """
 
 import asyncio
+import hashlib
+import hmac
+import json
 import logging
+import os
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
+from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from exchangelib import Account, Build, Configuration, Credentials, DELEGATE, EWSTimeZone, Version
@@ -33,6 +39,11 @@ WELL_KNOWN = {
     "f:calendar": "calendar", "f:contacts": "contacts", "f:tasks": "tasks",
 }
 
+# EWS_AUTH_FAIL_FAST: a rejected login is remembered in DATA_DIR under this
+# name, keyed to a salted hash of the credentials that were rejected.
+AUTH_LATCH_FILE = "auth_blocked.json"
+_LATCH_KDF_ROUNDS = 200_000
+
 
 class NoRetryOn401(FaultTolerance):
     """FaultTolerance, except a 401 is final: it is raised as a login failure
@@ -53,10 +64,14 @@ class EWSGateway:
         self.settings = settings
         self._account: Optional[Account] = None
         # EWS_AUTH_FAIL_FAST only: set on the first rejected login, after which
-        # every call fails without touching Exchange until restart. Until one
-        # login has succeeded, calls go through one at a time so parallel
-        # requests can't each spend a login attempt.
-        self.auth_failed: Optional[str] = None
+        # every call fails without touching Exchange. The rejection is saved in
+        # DATA_DIR and reloaded on restart while the credentials are unchanged.
+        # Until one login has succeeded, calls go through one at a time so
+        # parallel requests can't each spend a login attempt.
+        self._auth_latch_path = Path(settings.data_dir) / AUTH_LATCH_FILE
+        self.auth_failed: Optional[str] = (
+            self._load_auth_latch() if settings.ews_auth_fail_fast else None
+        )
         self._auth_ok = False
         self._first_login_lock = threading.Lock()
         self._account_lock = threading.Lock()
@@ -123,15 +138,72 @@ class EWSGateway:
                 "auth_failed",
                 f"Exchange rejected the credentials earlier: {self.auth_failed}",
                 hint="Not retrying, to avoid locking the account. Fix the "
-                     "credentials and restart the server.",
+                     "credentials and restart the server. The block survives "
+                     "restarts until the username or password changes, or "
+                     f"until {self._auth_latch_path} is deleted.",
             )
         try:
             return fn()
         except UnauthorizedError as e:
-            self.auth_failed = str(e)
+            self.auth_failed = str(e) or type(e).__name__
             self._auth_ok = False
             logger.error("login rejected, stopping all Exchange calls: %s", e)
+            self._save_auth_latch()
             raise
+
+    def _credential_fingerprint(self, salt: bytes) -> str:
+        s = self.settings
+        secret = f"{s.ews_username or s.ews_email}\0{s.ews_password or ''}".encode()
+        return hashlib.pbkdf2_hmac("sha256", secret, salt, _LATCH_KDF_ROUNDS).hex()
+
+    def _load_auth_latch(self) -> str | None:
+        """Reload a rejection saved by an earlier run with the same credentials,
+        so a client that restarts the server can't spend another login attempt.
+        Changed credentials clear it and allow one new try. A latch file that
+        exists but can't be read keeps the block."""
+        path = self._auth_latch_path
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            salt = bytes.fromhex(data["salt"])
+            fingerprint = data["fingerprint"]
+            reason = data["error"]
+            if not isinstance(fingerprint, str) or not isinstance(reason, str):
+                raise TypeError("fingerprint and error must be strings")
+        except FileNotFoundError:
+            return None
+        except (OSError, ValueError, KeyError, TypeError) as e:
+            logger.error("auth latch %s is unreadable, keeping Exchange calls blocked: %s",
+                         path, e)
+            return f"auth latch {path} is unreadable ({type(e).__name__})"
+        if not hmac.compare_digest(fingerprint, self._credential_fingerprint(salt)):
+            logger.warning("credentials changed since the rejected login, clearing %s", path)
+            try:
+                path.unlink(missing_ok=True)
+            except OSError as e:
+                logger.warning("could not delete auth latch %s: %s", path, e)
+            return None
+        logger.error("login was rejected earlier with these credentials, not retrying: %s",
+                     reason)
+        return reason or "login rejected earlier"
+
+    def _save_auth_latch(self) -> None:
+        salt = os.urandom(16)
+        data = {
+            "salt": salt.hex(),
+            "fingerprint": self._credential_fingerprint(salt),
+            "error": self.auth_failed,
+            "failed_at": datetime.now(UTC).isoformat(),
+        }
+        path = self._auth_latch_path
+        tmp = path.with_name(path.name + ".tmp")
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(data, f)
+            os.replace(tmp, path)
+        except OSError as e:
+            logger.error("could not save auth latch %s, the block ends at restart: %s", path, e)
 
     def reset(self) -> None:
         """Drop the cached account AND exchangelib's protocol-cache entry.

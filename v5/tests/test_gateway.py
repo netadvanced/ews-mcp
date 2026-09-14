@@ -7,6 +7,7 @@ session actually renegotiates auth.
 """
 
 import asyncio
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
@@ -139,6 +140,92 @@ def test_warmup_stops_after_rejected_login():
     assert mgr.state == STATE_AUTH_FAILED
     assert account.root.refresh.call_count == 1
 
+
+# --- EWS_AUTH_FAIL_FAST: rejection saved across restarts --------------------------
+
+
+def _latch_path(gw):
+    return Path(gw.settings.data_dir) / client_mod.AUTH_LATCH_FILE
+
+
+def _restarted(**overrides):
+    """A new gateway on the same DATA_DIR, as after an MCP client restart."""
+    gw = EWSGateway(make_settings(ews_auth_fail_fast=True, **overrides))
+    account = MagicMock(name="account")
+    gw._account = account
+    return gw, account
+
+
+def test_rejection_survives_restart_with_same_credentials():
+    gw, _ = _fail_fast_gateway()
+    assert gw.test_connection() is False
+    assert _latch_path(gw).exists()
+    assert "pw" not in _latch_path(gw).read_text()
+
+    gw2, account2 = _restarted()
+    assert gw2.auth_failed == gw.auth_failed
+    assert gw2.test_connection() is False
+    with pytest.raises(ToolError):
+        asyncio.run(gw2.call(lambda acc: acc.inbox))
+    account2.root.refresh.assert_not_called()
+
+
+def test_warmup_after_restart_makes_no_login_attempt():
+    gw, _ = _fail_fast_gateway()
+    gw.test_connection()
+    gw2, account2 = _restarted()
+    mgr = ConnectionManager(gw2, initial_backoff=0.01, max_backoff=0.01)
+
+    async def run():
+        await mgr.start()
+        await asyncio.wait_for(mgr._task, timeout=2)
+
+    asyncio.run(run())
+    assert mgr.state == STATE_AUTH_FAILED
+    account2.root.refresh.assert_not_called()
+
+
+@pytest.mark.parametrize("change", [{"ews_password": "new-pw"}, {"ews_username": "other"}])
+def test_changed_credentials_clear_the_rejection(change):
+    gw, _ = _fail_fast_gateway()
+    gw.test_connection()
+
+    gw2, account2 = _restarted(**change)
+    assert gw2.auth_failed is None
+    assert not _latch_path(gw2).exists()
+    assert gw2.test_connection() is True
+    account2.root.refresh.assert_called_once()
+
+
+def test_rejection_not_saved_without_fail_fast():
+    gw, account = _gateway_with_mock_account()
+    account.root.refresh.side_effect = UnauthorizedError("Invalid credentials")
+    assert gw.test_connection() is False
+    assert not _latch_path(gw).exists()
+
+
+def test_saved_rejection_ignored_without_fail_fast():
+    gw, _ = _fail_fast_gateway()
+    gw.test_connection()
+    assert _latch_path(gw).exists()
+    gw2 = EWSGateway(make_settings())
+    gw2._account = MagicMock(name="account")
+    assert gw2.auth_failed is None
+    assert gw2.test_connection() is True
+
+
+@pytest.mark.parametrize("content", ["{not json", "[]", '{"salt": "zz"}',
+                                     '{"salt": "00", "fingerprint": 1, "error": "x"}'])
+def test_unreadable_latch_keeps_calls_blocked(content):
+    path = Path(make_settings().data_dir) / client_mod.AUTH_LATCH_FILE
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content)
+
+    gw, account = _restarted()
+    assert gw.auth_failed
+    assert gw.test_connection() is False
+    account.root.refresh.assert_not_called()
+    assert path.read_text() == content
 
 # --- EWS_VERSION_BUILD / EWS_API_VERSION ----------------------------------------
 

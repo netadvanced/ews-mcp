@@ -51,8 +51,9 @@ class Settings(BaseSettings):
     ews_retry_max_wait_seconds: int = 300
     # exchangelib's FaultTolerance treats HTTP 401 as "server busy" and keeps
     # retrying. Against an AD account with a lockout policy a wrong password
-    # then locks the account. When true, the first rejected login is final
-    # until restart.
+    # then locks the account. When true, the first rejected login is final:
+    # it is saved as DATA_DIR/auth_blocked.json and stays in force across
+    # restarts until the username or password changes.
     ews_auth_fail_fast: bool = False
     ews_max_concurrency: int = 4
     circuit_failure_threshold: int = 5

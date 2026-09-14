@@ -131,7 +131,9 @@ Exchange contact; a background warmup loop owns connection recovery
 (exponential backoff + jitter, protocol-cache eviction every 3 failures,
 heartbeat re-probe with a REAL network round trip). The one exception is
 `EWS_AUTH_FAIL_FAST=true`: a rejected login stops the loop, so a wrong
-password can't lock an AD account.
+password can't lock an AD account. The rejection is kept in
+`DATA_DIR/auth_blocked.json` for the same credentials, so a restarted
+process doesn't try them again.
 
 ## §Audit
 
